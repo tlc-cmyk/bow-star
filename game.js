@@ -1,1159 +1,912 @@
-/* 弓弦星 — original browser mini-game. Public-domain melody only. */
+/**
+ * 弓弦星 — original canvas game shell: staff, pad, input, screens.
+ */
 (function () {
   "use strict";
 
-  var Q = 1;
-  var H = 2;
-  // Twinkle Twinkle Little Star, C major. Melody is public domain.
-  var SONG = [
-    ["C4", Q], ["C4", Q], ["G4", Q], ["G4", Q], ["A4", Q], ["A4", Q], ["G4", H],
-    ["F4", Q], ["F4", Q], ["E4", Q], ["E4", Q], ["D4", Q], ["D4", Q], ["C4", H],
-    ["G4", Q], ["G4", Q], ["F4", Q], ["F4", Q], ["E4", Q], ["E4", Q], ["D4", H],
-    ["G4", Q], ["G4", Q], ["F4", Q], ["F4", Q], ["E4", Q], ["E4", Q], ["D4", H],
-    ["C4", Q], ["C4", Q], ["G4", Q], ["G4", Q], ["A4", Q], ["A4", Q], ["G4", H],
-    ["F4", Q], ["F4", Q], ["E4", Q], ["E4", Q], ["D4", Q], ["D4", Q], ["C4", H]
-  ];
+  const E = window.BowStarEngine;
+  const canvas = document.getElementById("stage");
+  const ctx = canvas.getContext("2d");
+  const traceCard = document.getElementById("trace-card");
+  const traceCtx = traceCard.getContext("2d");
 
-  var FREQ = { C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.0, A4: 440.0 };
-  var SOLFEGE = { C4: "Do", D4: "Re", E4: "Mi", F4: "Fa", G4: "Sol", A4: "La" };
-  // Target string index: 0=G, 1=D, 2=A, 3=E (first-position style mapping)
-  var NOTE_STRING = { C4: 0, D4: 1, E4: 1, F4: 1, G4: 1, A4: 2 };
-  var STRING_META = [
-    { id: "G", label: "G 弦", wood: "#b8862a" },
-    { id: "D", label: "D 弦", wood: "#d8c07a" },
-    { id: "A", label: "A 弦", wood: "#efe3b8" },
-    { id: "E", label: "E 弦", wood: "#fff6dc" }
-  ];
-
-  var BEAT = 0.46; // seconds of successful bowing per quarter
-  var BOW_LEN = 252; // pixels of travel frog→tip
-  var IDLE_LIMIT = 3.2;
-  var SPEED_SLOW = 72;
-  var SPEED_GOOD_LO = 100;
-  var SPEED_GOOD_HI = 230;
-  var SPEED_FAST = 300;
-  var MIN_MOVE = 28;
-
-  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-  function lerp(a, b, t) { return a + (b - a) * t; }
-
-  function qualityFromSpeed(px) {
-    if (px < MIN_MOVE) return { q: -1, band: "still", counts: false };
-    if (px < SPEED_SLOW) return { q: -1, band: "scratch", counts: true };
-    if (px < SPEED_GOOD_LO) {
-      var t = (px - SPEED_SLOW) / (SPEED_GOOD_LO - SPEED_SLOW);
-      return { q: -1 + t, band: "rough", counts: true };
-    }
-    if (px <= SPEED_GOOD_HI) return { q: 0, band: "clean", counts: true };
-    if (px < SPEED_FAST) {
-      var u = (px - SPEED_GOOD_HI) / (SPEED_FAST - SPEED_GOOD_HI);
-      return { q: u, band: "thin", counts: true };
-    }
-    return { q: 1, band: "squeak", counts: true };
-  }
-
-  function gradeFor(pct) {
-    if (pct >= 85) return { name: "名演", blurb: "弓速穩、換弓準，星都啱晒。" };
-    if (pct >= 50) return { name: "普通", blurb: "拉得完，不過仲有雜音同趕忙。" };
-    return { name: "貓鬥架", blurb: "弦同弓各自為政，好熱鬧。" };
-  }
-
-  var canvas = document.getElementById("stage");
-  var ctx = canvas.getContext("2d");
-  var synth = new BowSynth();
-
-  var els = {
+  const el = {
     hud: document.getElementById("hud"),
-    hudNote: document.getElementById("hud-note"),
     hudScore: document.getElementById("hud-score"),
     title: document.getElementById("screen-title"),
     result: document.getElementById("screen-result"),
-    grade: document.getElementById("result-grade"),
-    resultScore: document.getElementById("result-score"),
-    breakdown: document.getElementById("result-break"),
+    headline: document.getElementById("result-headline"),
+    score: document.getElementById("result-score"),
+    best: document.getElementById("result-best"),
+    sub: document.getElementById("result-sub"),
+    rotate: document.getElementById("rotate-hint"),
     mute: document.getElementById("btn-mute"),
     muteTitle: document.getElementById("btn-mute-title"),
+    muteResult: document.getElementById("btn-mute-result"),
     start: document.getElementById("btn-start"),
     retry: document.getElementById("btn-retry"),
     home: document.getElementById("btn-home"),
-    rotate: document.getElementById("rotate-hint")
+    safe: document.getElementById("safe-probe"),
   };
 
-  var state = "title"; // title | play | result
-  var muted = false;
-  var W = 390;
-  var H = 844;
-  var layout = null;
-  var stars = [];
-  var sparks = [];
+  const STORE_MUTE = "bowstar-v2-mute";
+  const STORE_BEST = "bowstar-v2-best";
+  const STORE_HINT = "bowstar-v2-hint";
 
-  var play = null;
-  var pointer = { down: false, id: null, x: 0, y: 0, lastX: 0, lastT: 0 };
-  var speedEma = 0;
-  var flash = { text: "", color: "", t: 0 };
-  var bowHintPulse = 0;
+  const audio = new window.BowStarAudio();
+  const engine = new E.PlayEngine();
 
-  function resize() {
-    var dpr = Math.min(window.devicePixelRatio || 1, 3);
-    var w = window.innerWidth;
-    var h = window.innerHeight;
-    canvas.width = Math.max(1, Math.floor(w * dpr));
-    canvas.height = Math.max(1, Math.floor(h * dpr));
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    W = w;
-    H = h;
-    layout = computeLayout(w, h);
-    var landscape = w > h * 1.15;
-    // Desktop landscape: still playable in a centred column; phones should rotate.
-    var isCoarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
-    if (landscape && isCoarse && w < 1100) {
-      els.rotate.classList.remove("hidden");
-    } else {
-      els.rotate.classList.add("hidden");
+  const input = {
+    pointerDown: false,
+    lastX: 0,
+    lastY: 0,
+    deltas: [],
+    padY: null,
+    hadPad: false,
+    id: null,
+  };
+
+  let screen = "title"; // title | play | result
+  let lastResult = null;
+  let startAudioTime = null;
+  let startPerf = 0;
+  let cssW = 360;
+  let cssH = 640;
+  let dpr = 1;
+  let showHint = localStorage.getItem(STORE_HINT) !== "1";
+  let muted = localStorage.getItem(STORE_MUTE) === "1";
+  let lastClickState = false;
+  let stars = [];
+  let lastFrame = 0;
+
+  const COLORS = {
+    bg0: "#0c0814",
+    bg1: "#1a1024",
+    gold: "#f4c45a",
+    cream: "#fff6e4",
+    wood0: "#2a160c",
+    wood1: "#5a3318",
+    wood2: "#8a5a2e",
+    wood3: "#c4a36a",
+    string: "#e8dcc0",
+    playhead: "#fff0b0",
+    note: "#e8c45a",
+    clean: "#f4d56a",
+    gii: "#e07040",
+    suka: "#9ad8ff",
+    wrong: "#ff5aa8",
+    dble: "#7ee0c4",
+    click: "#ffcc88",
+  };
+
+  function seededStars() {
+    const list = [];
+    let s = 80211;
+    function rnd() {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 4294967296;
     }
-  }
-
-  function computeLayout(w, h) {
-    // Reserve space for the HUD + notch
-    var top = Math.max(86, Math.min(128, h * 0.13));
-    var bottom = h - 18;
-    var midX = w * 0.5;
-    var bodyW = Math.min(w * 0.78, 340);
-    var neckW = bodyW * 0.22;
-    var bodyTop = top + h * 0.08;
-    var bodyBot = bottom - 64;
-    var bowY = lerp(bodyTop, bodyBot, 0.62);
-    var bridgeY = bowY + Math.min(36, h * 0.04);
-    var fbTop = bodyTop + 36;
-    var nutY = fbTop + 10;
-    var scrollY = bodyTop - 8;
-    var stringGap = Math.min(28, bodyW * 0.085);
-    var strings = [];
-    for (var i = 0; i < 4; i++) {
-      strings.push(midX + (i - 1.5) * stringGap);
-    }
-    return {
-      midX: midX,
-      bodyW: bodyW,
-      neckW: neckW,
-      bodyTop: bodyTop,
-      bodyBot: bodyBot,
-      bowY: bowY,
-      bridgeY: bridgeY,
-      fbTop: fbTop,
-      nutY: nutY,
-      scrollY: scrollY,
-      strings: strings,
-      stringGap: stringGap,
-      hitSlop: Math.max(22, stringGap * 0.95),
-      staffY: top + 8,
-      meterY: bottom - 28
-    };
-  }
-
-  function initStars() {
-    stars = [];
-    for (var i = 0; i < 48; i++) {
-      stars.push({
-        x: Math.random(),
-        y: Math.random(),
-        r: 0.4 + Math.random() * 1.6,
-        a: 0.25 + Math.random() * 0.7,
-        p: Math.random() * Math.PI * 2,
-        s: 0.4 + Math.random() * 1.2
+    for (let i = 0; i < 90; i++) {
+      list.push({
+        x: rnd(),
+        y: rnd(),
+        r: 0.4 + rnd() * 1.4,
+        p: rnd() * Math.PI * 2,
+        t: 0.4 + rnd() * 0.8,
       });
     }
+    return list;
   }
+  stars = seededStars();
 
-  function resetPlay() {
-    play = {
-      index: 0,
-      filled: 0,
-      idle: 0,
-      bowPos: 0.32, // 0 frog, 1 tip; start near frog for a first down-bow
-      bowDir: 0,
-      bowEnded: false,
-      touching: false,
-      stringIdx: -1,
-      stringLocked: false,
-      grace: 0,
-      begun: false,
-      noteSamples: [],
-      results: [],
-      score: 0,
-      maxScore: 0,
-      cleanTime: 0,
-      scratchTime: 0,
-      squeakTime: 0,
-      wrongs: 0,
-      ends: 0,
-      goodReverses: 0,
-      skipped: false,
-      lastReverseAt: -1,
-      finished: false
-    };
-    for (var i = 0; i < SONG.length; i++) play.maxScore += 100 * SONG[i][1];
-    speedEma = 0;
-    sparks = [];
-    flash.t = 0;
-    updateHud();
-  }
-
-  function currentNote() {
-    if (!play || play.index >= SONG.length) return null;
-    var n = SONG[play.index];
+  function layout() {
+    const staffTop = (el.safe ? el.safe.offsetHeight : 0) + 54;
+    const staffH = Math.max(120, cssH * 0.4);
+    const padTop = staffH;
     return {
-      name: n[0],
-      beats: n[1],
-      need: n[1] * BEAT,
-      freq: FREQ[n[0]],
-      string: NOTE_STRING[n[0]],
-      label: SOLFEGE[n[0]]
+      staffTop: staffTop,
+      staffY: 0,
+      staffH: staffH,
+      padTop: padTop,
+      padH: cssH - padTop,
+      playX: cssW * 0.22,
+      pxPerSec: (cssW * 0.62) / (8 * E.BEAT),
     };
   }
 
-  function updateHud() {
-    var n = currentNote();
-    if (n) {
-      els.hudNote.textContent = "目標 " + n.label + "（" + n.name.replace("4", "") + "）· " + STRING_META[n.string].label;
-    } else {
-      els.hudNote.textContent = "曲終";
-    }
-    var pct = play && play.maxScore ? Math.round((play.score / play.maxScore) * 100) : 0;
-    els.hudScore.textContent = pct + " 分";
+  function resize() {
+    cssW = window.innerWidth;
+    cssH = window.innerHeight;
+    dpr = Math.min(2.5, window.devicePixelRatio || 1);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    updateRotate();
+  }
+
+  function updateRotate() {
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    const landscape = cssW > cssH;
+    el.rotate.classList.toggle("hidden", !(coarse && landscape));
   }
 
   function setMuted(next) {
-    muted = next;
-    synth.setMuted(muted);
-    els.mute.textContent = muted ? "靜" : "聲";
-    els.muteTitle.textContent = muted ? "聲音：關" : "聲音：開";
-    els.mute.setAttribute("aria-label", muted ? "開聲" : "靜音");
+    muted = !!next;
+    localStorage.setItem(STORE_MUTE, muted ? "1" : "0");
+    audio.setMuted(muted);
+    const label = muted ? "聲音：關" : "聲音：開";
+    el.muteTitle.textContent = label;
+    el.muteResult.textContent = label;
+    el.mute.textContent = muted ? "靜" : "聲";
+    el.mute.setAttribute("aria-label", muted ? "開啟聲音" : "靜音");
   }
 
   function showScreen(name) {
-    state = name;
-    els.title.classList.toggle("hidden", name !== "title");
-    els.result.classList.toggle("hidden", name !== "result");
-    els.hud.classList.toggle("hidden", name !== "play");
+    screen = name;
+    el.title.classList.toggle("hidden", name !== "title");
+    el.result.classList.toggle("hidden", name !== "result");
+    el.hud.classList.toggle("hidden", name !== "play");
   }
 
-  function startGame() {
-    synth.resume();
-    resetPlay();
+  function nowT() {
+    if (audio.ctx && startAudioTime != null) {
+      return audio.ctx.currentTime - startAudioTime;
+    }
+    return (performance.now() - startPerf) / 1000;
+  }
+
+  function consumeInput() {
+    const pack = {
+      pointerDown: input.pointerDown,
+      deltas: input.deltas.slice(),
+      padY: input.hadPad ? input.padY : null,
+      canvasCssWidth: cssW,
+    };
+    input.deltas.length = 0;
+    return pack;
+  }
+
+  function updatePadY(clientY) {
+    const L = layout();
+    if (clientY >= L.padTop && clientY <= cssH) {
+      input.padY = (clientY - L.padTop) / L.padH;
+      input.hadPad = true;
+    }
+  }
+
+  function onPointerDown(ev) {
+    if (screen !== "play" && screen !== "title") return;
+    if (ev.target && ev.target.closest && ev.target.closest("button, .panel")) return;
+    ev.preventDefault();
+    try {
+      canvas.setPointerCapture(ev.pointerId);
+    } catch (err) {}
+    input.pointerDown = true;
+    input.id = ev.pointerId;
+    input.lastX = ev.clientX;
+    input.lastY = ev.clientY;
+    input.deltas.length = 0;
+    input.hadPad = false;
+    input.padY = null;
+    updatePadY(ev.clientY);
+    if (showHint && screen === "play") {
+      showHint = false;
+      localStorage.setItem(STORE_HINT, "1");
+    }
+  }
+
+  function onPointerMove(ev) {
+    if (!input.pointerDown || ev.pointerId !== input.id) {
+      return;
+    }
+    ev.preventDefault();
+    const evs = ev.getCoalescedEvents ? ev.getCoalescedEvents() : [ev];
+    for (let i = 0; i < evs.length; i++) {
+      const e = evs[i];
+      input.deltas.push(e.clientX - input.lastX);
+      input.lastX = e.clientX;
+      input.lastY = e.clientY;
+    }
+    updatePadY(ev.clientY);
+  }
+
+  function onPointerUp(ev) {
+    if (ev.pointerId !== input.id) return;
+    ev.preventDefault();
+    input.pointerDown = false;
+    input.id = null;
+    input.hadPad = false;
+  }
+
+  function preventScroll(ev) {
+    if (ev.target && ev.target.closest && ev.target.closest("button, .panel, .icon-btn")) return;
+    ev.preventDefault();
+  }
+
+  canvas.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerUp);
+  window.addEventListener("touchstart", preventScroll, { passive: false });
+  window.addEventListener("touchmove", preventScroll, { passive: false });
+
+  async function beginPlay() {
+    await audio.unlock();
+    engine.reset();
+    lastClickState = false;
+    input.pointerDown = false;
+    input.deltas.length = 0;
+    input.hadPad = false;
+    startPerf = performance.now();
+    if (audio.ctx) {
+      if (audio.ctx.state === "suspended") await audio.ctx.resume();
+      startAudioTime = audio.ctx.currentTime + 0.06;
+      audio.scheduleScore(startAudioTime, E);
+    } else {
+      startAudioTime = null;
+    }
     showScreen("play");
+    el.hudScore.textContent = "—";
   }
 
-  function finishGame() {
-    if (play.finished) return;
-    play.finished = true;
-    synth.setBow({ active: false });
-    var pct = play.maxScore ? (play.score / play.maxScore) * 100 : 0;
-    var g = gradeFor(pct);
-    els.grade.textContent = g.name;
-    els.resultScore.textContent = Math.round(pct) + " / 100";
-    var cleanPct = Math.round((play.cleanTime / Math.max(0.01, play.cleanTime + play.scratchTime + play.squeakTime)) * 100) || 0;
-    var acc = SONG.length - play.wrongs;
-    els.breakdown.innerHTML =
-      "<li>準弦　" + acc + " / " + SONG.length + " 個音</li>" +
-      "<li>乾淨弓速　約 " + cleanPct + "%</li>" +
-      "<li>拉盡弓毛　" + play.ends + " 次</li>" +
-      "<li>及時掉轉　" + play.goodReverses + " 次</li>" +
-      "<li>" + g.blurb + "</li>";
-    synth.chime(pct >= 50);
+  function finishPlay() {
+    audio.stopVoices();
+    audio.cancelAccompaniment();
+    const result = engine.result();
+    lastResult = result;
+    let best = parseFloat(localStorage.getItem(STORE_BEST) || "NaN");
+    const isNew = !Number.isFinite(best) || result.shown > best;
+    if (isNew) {
+      localStorage.setItem(STORE_BEST, String(result.shown));
+      best = result.shown;
+    }
+    el.headline.textContent = result.headline;
+    el.score.textContent = "名演度 " + result.shown.toFixed(1);
+    el.best.classList.toggle("hidden", !isNew || result.shown <= 0);
+    if (result.shown >= 90) {
+      el.sub.textContent = result.type === result.headline ? "" : result.type;
+    } else {
+      el.sub.textContent = "評級：" + result.grade;
+    }
+    drawTraceCard(result);
     showScreen("result");
   }
 
-  function settleNote(reason) {
-    var note = currentNote();
-    if (!note || !play) return;
-    var samples = play.noteSamples;
-    var clean = 0, rough = 0, bad = 0, total = samples.length;
-    for (var i = 0; i < total; i++) {
-      var b = samples[i];
-      if (b === "clean") clean++;
-      else if (b === "rough" || b === "thin") rough++;
-      else bad++;
-    }
-    var fill = clamp(play.filled / note.need, 0, 1);
-    var qScore = 0;
-    if (reason === "wrong" || reason === "timeout") {
-      qScore = 0;
-    } else if (reason === "ended" && fill < 0.5) {
-      qScore = 18 * fill;
-    } else if (total === 0) {
-      qScore = 0;
-    } else {
-      qScore = (clean / total) * 100 + (rough / total) * 55 + (bad / total) * 12;
-      qScore *= 0.65 + 0.35 * fill;
-      if (reason === "ended") qScore *= 0.7;
-    }
-    qScore = clamp(qScore, 0, 100) * note.beats;
-    play.score += qScore;
-    play.results.push({ reason: reason, score: qScore, name: note.name });
-    play.index += 1;
-    play.filled = 0;
-    play.idle = 0;
-    play.noteSamples = [];
-    play.skipped = reason === "wrong";
-    play.grace = 0.55;
-    play.stringLocked = false;
-    if (pointer.down) play.stringIdx = nearestString(pointer.x, pointer.y);
-    if (reason === "wrong") {
-      flashIt("跳過", "#ff8a7a");
-      synth.pluck(note.freq * 0.85, "bad");
-      if (navigator.vibrate) navigator.vibrate(24);
-    } else if (reason === "ended") {
-      flashIt("弓盡", "#ffb070");
-    } else if (reason === "ok") {
-      var lastBand = samples.length ? samples[samples.length - 1] : "clean";
-      if (lastBand === "clean") spawnSparks(layout.strings[note.string], layout.bowY, 10);
-    }
-    updateHud();
-    if (play.index >= SONG.length) finishGame();
+  el.start.addEventListener("click", function () {
+    beginPlay();
+  });
+  el.retry.addEventListener("click", function () {
+    beginPlay();
+  });
+  el.home.addEventListener("click", function () {
+    audio.stopVoices();
+    audio.cancelAccompaniment();
+    startAudioTime = null;
+    engine.reset();
+    showScreen("title");
+  });
+  el.mute.addEventListener("click", function () {
+    setMuted(!muted);
+  });
+  el.muteTitle.addEventListener("click", function () {
+    setMuted(!muted);
+  });
+  el.muteResult.addEventListener("click", function () {
+    setMuted(!muted);
+  });
+
+  function roundedRect(c, x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    c.beginPath();
+    c.moveTo(x + rr, y);
+    c.arcTo(x + w, y, x + w, y + h, rr);
+    c.arcTo(x + w, y + h, x, y + h, rr);
+    c.arcTo(x, y + h, x, y, rr);
+    c.arcTo(x, y, x + w, y, rr);
+    c.closePath();
   }
 
-  function flashIt(text, color) {
-    flash.text = text;
-    flash.color = color;
-    flash.t = 0.7;
+  function laneY(L, lane, h) {
+    const usableTop = Math.max(L.staffTop, 8);
+    const usableH = L.staffH - usableTop - 8;
+    const row = usableH / 4;
+    return usableTop + row * (lane + 0.5);
   }
 
-  function spawnSparks(x, y, n) {
-    for (var i = 0; i < n; i++) {
-      var a = Math.random() * Math.PI * 2;
-      var s = 30 + Math.random() * 90;
-      sparks.push({
-        x: x, y: y,
-        vx: Math.cos(a) * s,
-        vy: Math.sin(a) * s - 20,
-        life: 0.4 + Math.random() * 0.4,
-        age: 0,
-        c: Math.random() < 0.5 ? "#f4c45a" : "#fff6e4"
-      });
-    }
+  function laneRow(L) {
+    const usableTop = Math.max(L.staffTop, 8);
+    const usableH = L.staffH - usableTop - 8;
+    return { top: usableTop, h: usableH / 4 };
   }
 
-  function nearestString(x, y) {
-    var L = layout;
-    if (!L) return -1;
-    // Accept touches near the bowing zone and along the fingerboard
-    if (y < L.fbTop - 30 || y > L.bridgeY + 50) return -1;
-    var best = -1, bestD = L.hitSlop + 8;
-    for (var i = 0; i < 4; i++) {
-      var d = Math.abs(x - L.strings[i]);
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    return best;
+  function xAt(L, t, now) {
+    return L.playX + (t - now) * L.pxPerSec;
   }
 
-  function applyBowDelta(dx, dt) {
-    if (!play || dt <= 0) return;
-    var speed = Math.abs(dx) / dt;
-    speedEma = speedEma * 0.65 + speed * 0.35;
-    var moving = Math.abs(dx) > 0.15;
-    if (!moving) return;
-
-    var dir = dx > 0 ? 1 : -1;
-    if (play.bowDir !== 0 && dir !== play.bowDir && !play.bowEnded) {
-      // Reverse! Reward if remaining hair was getting short but not empty
-      var remain = play.bowDir > 0 ? (1 - play.bowPos) : play.bowPos;
-      if (remain < 0.38 && remain > 0.02) {
-        play.goodReverses += 1;
-        flashIt("掉轉", "#f4c45a");
-        spawnSparks(layout.midX, layout.bowY, 6);
-      }
-      play.lastReverseAt = play.index;
-    }
-    play.bowDir = dir;
-
-    var next = play.bowPos + (dx / BOW_LEN);
-    if (next <= 0 || next >= 1) {
-      play.bowPos = clamp(next, 0, 1);
-      if (!play.bowEnded) {
-        play.bowEnded = true;
-        play.ends += 1;
-      }
-    } else {
-      play.bowPos = next;
-      play.bowEnded = false;
-    }
-  }
-
-  var lastTs = 0;
-  function tick(ts) {
-    if (!lastTs) lastTs = ts;
-    var dt = clamp((ts - lastTs) / 1000, 0, 0.05);
-    lastTs = ts;
-    update(dt);
-    draw(ts / 1000);
-    requestAnimationFrame(tick);
-  }
-
-  function update(dt) {
-    bowHintPulse += dt;
-    if (flash.t > 0) flash.t -= dt;
-    for (var i = sparks.length - 1; i >= 0; i--) {
-      var s = sparks[i];
-      s.age += dt;
-      s.x += s.vx * dt;
-      s.y += s.vy * dt;
-      s.vy += 80 * dt;
-      if (s.age >= s.life) sparks.splice(i, 1);
-    }
-    if (state !== "play" || !play) {
-      synth.setBow({ active: false });
-      return;
-    }
-    var note = currentNote();
-    if (!note) {
-      synth.setBow({ active: false });
-      return;
-    }
-
-    var qual = qualityFromSpeed(speedEma);
-    if (play.grace > 0) play.grace -= dt;
-    var onTarget = play.touching && play.stringIdx === note.string;
-    var onWrong = play.touching && play.stringIdx >= 0 && play.stringIdx !== note.string;
-    var off = !play.touching || play.stringIdx < 0;
-
-    if (off) {
-      if (play.begun) play.idle += dt;
-      speedEma *= 0.85;
-      synth.setBow({ active: false });
-      if (play.begun && play.idle > IDLE_LIMIT) settleNote("timeout");
-      return;
-    }
-
-    // After a note change, allow the player to slide onto the next string.
-    if (onWrong && play.grace > 0) {
-      synth.setBow({ active: false });
-      return;
-    }
-
-    if (onWrong) {
-      play.wrongs += 1;
-      synth.setBow({
-        active: true,
-        freq: note.freq,
-        quality: 0.4,
-        wrong: true,
-        intensity: 0.5,
-        ended: false
-      });
-      settleNote("wrong");
-      return;
-    }
-
-    // on target string
-    play.idle = 0;
-    play.begun = true;
-    play.stringLocked = true;
-    play.grace = 0;
-    var ended = play.bowEnded;
-    var intensity = clamp(speedEma / 180, 0, 1);
-    synth.setBow({
-      active: play.touching && (qual.counts || ended),
-      freq: note.freq,
-      quality: ended ? -1 : qual.q,
-      intensity: ended ? 0.7 : intensity,
-      ended: ended,
-      wrong: false
-    });
-
-    if (ended) {
-      play.scratchTime += dt;
-      play.noteSamples.push("scratch");
-      // Running out mid-note: give a short grace, then settle as ended if still stuck
-      play.filled += dt * 0.15;
-      if (play.filled > note.need * 0.35 && play.bowEnded) {
-        // don't auto-skip immediately; wait until they linger at the tip
-        play.idle += dt;
-        if (play.idle > 0.55) settleNote("ended");
-      }
-      return;
-    }
-
-    if (qual.counts) {
-      var fillRate = 1;
-      if (qual.band === "scratch") fillRate = 0.45;
-      else if (qual.band === "rough" || qual.band === "thin") fillRate = 0.8;
-      else if (qual.band === "squeak") fillRate = 0.5;
-      play.filled += dt * fillRate;
-      play.noteSamples.push(qual.band === "clean" ? "clean" : qual.band);
-      if (qual.band === "clean") play.cleanTime += dt;
-      else if (qual.band === "squeak" || qual.band === "scratch") play.scratchTime += dt;
-      else play.squeakTime += dt;
-      if (qual.band === "clean" && Math.random() < dt * 6) {
-        spawnSparks(layout.strings[note.string], layout.bowY, 1);
-      }
-      if (play.filled >= note.need) settleNote("ok");
-    } else {
-      play.idle += dt;
-      if (play.idle > IDLE_LIMIT) settleNote("timeout");
-    }
-  }
-
-  // ---------- drawing ----------
-  function draw(time) {
-    var L = layout;
-    if (!L) return;
-    ctx.clearRect(0, 0, W, H);
-    drawBackdrop(time);
-    drawViolin(L, time);
-    if (state === "play") {
-      drawStaff(L);
-      drawBow(L, time);
-      drawMeter(L);
-      drawPrompts(L, time);
-    } else {
-      drawBowRest(L, time);
-    }
-    drawSparks();
-    if (state === "title") drawTitleOrnament(L, time);
-  }
-
-  function drawBackdrop(time) {
-    var g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, "#1a1024");
-    g.addColorStop(0.45, "#1c1020");
-    g.addColorStop(1, "#120a10");
+  function drawBackground(now) {
+    const g = ctx.createLinearGradient(0, 0, 0, cssH);
+    g.addColorStop(0, COLORS.bg0);
+    g.addColorStop(0.45, "#140c1c");
+    g.addColorStop(1, COLORS.bg1);
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, 0, cssW, cssH);
 
-    // vignette stage wash
-    var rg = ctx.createRadialGradient(W * 0.5, H * 0.58, 20, W * 0.5, H * 0.55, H * 0.72);
-    rg.addColorStop(0, "rgba(180, 90, 40, 0.16)");
-    rg.addColorStop(0.5, "rgba(80, 30, 60, 0.08)");
-    rg.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = rg;
-    ctx.fillRect(0, 0, W, H);
-
-    for (var i = 0; i < stars.length; i++) {
-      var s = stars[i];
-      var tw = 0.55 + 0.45 * Math.sin(time * s.s + s.p);
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      const tw = 0.45 + 0.55 * Math.abs(Math.sin(now * s.t + s.p));
+      ctx.globalAlpha = tw * (s.y < 0.45 ? 1 : 0.35);
+      ctx.fillStyle = i % 7 === 0 ? COLORS.gold : COLORS.cream;
       ctx.beginPath();
-      ctx.fillStyle = "rgba(255, 246, 228, " + (s.a * tw) + ")";
-      ctx.arc(s.x * W, s.y * H * 0.55, s.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  function drawTitleOrnament(L, time) {
-    // Soft constellation above the violin
-    ctx.save();
-    ctx.translate(L.midX, Math.max(48, L.bodyTop - 70));
-    var pulse = 0.75 + 0.25 * Math.sin(time * 2);
-    ctx.fillStyle = "rgba(244, 196, 90, " + pulse + ")";
-    starPath(0, 0, 7, 16, 5);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  function starPath(x, y, inner, outer, n) {
-    ctx.beginPath();
-    for (var i = 0; i < n * 2; i++) {
-      var r = i % 2 === 0 ? outer : inner;
-      var a = -Math.PI / 2 + (i * Math.PI) / n;
-      var px = x + Math.cos(a) * r;
-      var py = y + Math.sin(a) * r;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-  }
-
-  function drawViolin(L, time) {
-    var x = L.midX;
-    var top = L.scrollY;
-    var bot = L.bodyBot;
-    var bodyTop = lerp(L.bridgeY, bot, 0.04);
-    ctx.save();
-
-    // soft shadow
-    ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.beginPath();
-    violinBodyPath(x + 6, bodyTop + 8, bot + 8, L.bodyW);
-    ctx.fill();
-
-    // neck
-    var nw = L.neckW;
-    var neckGrad = ctx.createLinearGradient(x - nw, 0, x + nw, 0);
-    neckGrad.addColorStop(0, "#3a2214");
-    neckGrad.addColorStop(0.45, "#7a4a28");
-    neckGrad.addColorStop(0.55, "#c08a52");
-    neckGrad.addColorStop(1, "#3a2214");
-    ctx.fillStyle = "#1a100c";
-    roundRect(x - nw * 0.55, L.fbTop - 8, nw * 1.1, L.bridgeY - L.fbTop + 16, 6);
-    ctx.fill();
-    // fingerboard
-    ctx.fillStyle = "#120c0a";
-    roundRect(x - nw * 0.42, L.fbTop, nw * 0.84, L.bridgeY - L.fbTop + 4, 4);
-    ctx.fill();
-    // fingerboard sheen
-    ctx.fillStyle = "rgba(255,255,255,0.05)";
-    ctx.fillRect(x - nw * 0.12, L.fbTop + 8, 4, L.bridgeY - L.fbTop - 10);
-
-    // scroll + pegbox
-    drawScroll(x, top, nw);
-
-    // body
-    var wood = ctx.createLinearGradient(x - L.bodyW * 0.5, bodyTop, x + L.bodyW * 0.5, bot);
-    wood.addColorStop(0, "#5a2c16");
-    wood.addColorStop(0.35, "#a05a2c");
-    wood.addColorStop(0.5, "#d09048");
-    wood.addColorStop(0.65, "#8a4a24");
-    wood.addColorStop(1, "#3e1c10");
-    ctx.fillStyle = wood;
-    ctx.strokeStyle = "rgba(40,16,8,0.8)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    violinBodyPath(x, bodyTop, bot, L.bodyW);
-    ctx.fill();
-    ctx.stroke();
-
-    // varnish highlight
-    ctx.save();
-    ctx.beginPath();
-    violinBodyPath(x, bodyTop, bot, L.bodyW);
-    ctx.clip();
-    var shine = ctx.createLinearGradient(x - 40, bodyTop, x + 80, bot);
-    shine.addColorStop(0, "rgba(255,230,180,0.18)");
-    shine.addColorStop(0.4, "rgba(255,200,120,0.04)");
-    shine.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = shine;
-    ctx.fillRect(x - L.bodyW, bodyTop, L.bodyW * 2, bot - bodyTop);
-    // f-holes
-    ctx.fillStyle = "#120806";
-    drawFHole(x - L.bodyW * 0.18, lerp(bodyTop, bot, 0.42), 1);
-    drawFHole(x + L.bodyW * 0.18, lerp(bodyTop, bot, 0.42), -1);
-    ctx.restore();
-
-    // bridge
-    ctx.fillStyle = "#e8d0a8";
-    ctx.strokeStyle = "#5a3a18";
-    ctx.lineWidth = 1;
-    var bw = (L.strings[3] - L.strings[0]) + 16;
-    ctx.beginPath();
-    ctx.moveTo(x - bw / 2, L.bridgeY + 8);
-    ctx.lineTo(x - bw / 2 + 3, L.bridgeY - 4);
-    for (var i = 0; i < 4; i++) {
-      ctx.lineTo(L.strings[i] - 2, L.bridgeY - 6);
-      ctx.lineTo(L.strings[i], L.bridgeY - 10);
-      ctx.lineTo(L.strings[i] + 2, L.bridgeY - 6);
-    }
-    ctx.lineTo(x + bw / 2 - 3, L.bridgeY - 4);
-    ctx.lineTo(x + bw / 2, L.bridgeY + 8);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // tailpiece + star inlay
-    var ty = lerp(L.bridgeY, bot, 0.72);
-    ctx.fillStyle = "#1a120e";
-    roundRect(x - 18, ty, 36, Math.max(36, bot - ty - 16), 6);
-    ctx.fill();
-    ctx.fillStyle = "#f4c45a";
-    starPath(x, ty + 18, 3, 7, 5);
-    ctx.fill();
-
-    // chinrest hint
-    ctx.fillStyle = "#2a1c14";
-    ctx.beginPath();
-    ctx.ellipse(x + L.bodyW * 0.28, bot - 18, 22, 12, 0.2, 0, Math.PI * 2);
-    ctx.fill();
-
-    // strings
-    var note = state === "play" ? currentNote() : null;
-    for (var s = 0; s < 4; s++) {
-      var sx = L.strings[s];
-      var target = note && note.string === s;
-      var thick = [2.4, 1.9, 1.5, 1.15][s];
-      if (target) {
-        var glow = 0.45 + 0.35 * Math.sin(time * 5);
-        ctx.strokeStyle = "rgba(244,196,90," + glow + ")";
-        ctx.lineWidth = thick + 8;
-        ctx.lineCap = "round";
-        ctx.beginPath();
-        ctx.moveTo(sx, L.nutY);
-        ctx.lineTo(sx, L.bridgeY - 2);
-        ctx.stroke();
-      }
-      var sg = ctx.createLinearGradient(sx, L.nutY, sx, bot - 20);
-      sg.addColorStop(0, STRING_META[s].wood);
-      sg.addColorStop(0.6, "#fff8e8");
-      sg.addColorStop(1, "#b0a070");
-      ctx.strokeStyle = sg;
-      ctx.lineWidth = thick;
-      ctx.beginPath();
-      ctx.moveTo(sx, L.nutY);
-      ctx.lineTo(sx, ty + 6);
-      ctx.stroke();
-
-      // string label near scroll
-      ctx.fillStyle = target ? "#f4c45a" : "rgba(246,236,216,0.55)";
-      ctx.font = "600 11px PingFang HK, Noto Sans TC, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(STRING_META[s].id, sx, L.nutY - 10);
-    }
-
-    // nut
-    ctx.fillStyle = "#efe6d2";
-    ctx.fillRect(x - nw * 0.42, L.nutY - 2, nw * 0.84, 4);
-
-    ctx.restore();
-  }
-
-  function violinBodyPath(x, top, bot, w) {
-    var h = bot - top;
-    var u = top + h * 0.22; // upper bout bottom
-    var waist = top + h * 0.42;
-    var l = top + h * 0.55;
-    ctx.moveTo(x, top + 6);
-    ctx.bezierCurveTo(x + w * 0.18, top - 4, x + w * 0.46, top + h * 0.02, x + w * 0.44, u);
-    ctx.bezierCurveTo(x + w * 0.42, waist - 10, x + w * 0.22, waist, x + w * 0.20, waist + 8);
-    ctx.bezierCurveTo(x + w * 0.22, l, x + w * 0.52, l + 8, x + w * 0.50, bot - h * 0.18);
-    ctx.bezierCurveTo(x + w * 0.48, bot + 8, x + w * 0.16, bot + 4, x, bot);
-    ctx.bezierCurveTo(x - w * 0.16, bot + 4, x - w * 0.48, bot + 8, x - w * 0.50, bot - h * 0.18);
-    ctx.bezierCurveTo(x - w * 0.52, l + 8, x - w * 0.22, l, x - w * 0.20, waist + 8);
-    ctx.bezierCurveTo(x - w * 0.22, waist, x - w * 0.42, waist - 10, x - w * 0.44, u);
-    ctx.bezierCurveTo(x - w * 0.46, top + h * 0.02, x - w * 0.18, top - 4, x, top + 6);
-    ctx.closePath();
-  }
-
-  function drawFHole(cx, cy, dir) {
-    ctx.beginPath();
-    ctx.ellipse(cx, cy - 16, 5, 6, 0, 0, Math.PI * 2);
-    ctx.ellipse(cx, cy + 18, 5, 6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(cx + dir * 1, cy - 12);
-    ctx.bezierCurveTo(cx + dir * 10, cy - 2, cx - dir * 8, cy + 6, cx + dir * 1, cy + 14);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "#120806";
-    ctx.stroke();
-    ctx.fillRect(cx - 7, cy - 2, 14, 3);
-  }
-
-  function drawScroll(x, top, nw) {
-    ctx.fillStyle = "#8a4e28";
-    ctx.beginPath();
-    ctx.moveTo(x - nw * 0.42, top + 44);
-    ctx.lineTo(x - nw * 0.38, top + 18);
-    ctx.quadraticCurveTo(x - 16, top - 2, x, top - 6);
-    ctx.quadraticCurveTo(x + 16, top - 2, x + nw * 0.38, top + 18);
-    ctx.lineTo(x + nw * 0.42, top + 44);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = "rgba(40,16,8,0.5)";
-    ctx.stroke();
-    // spiral
-    ctx.strokeStyle = "#d8a45a";
-    ctx.lineWidth = 2.2;
-    ctx.beginPath();
-    ctx.arc(x + 1, top + 6, 7, 0.2, Math.PI * 1.7);
-    ctx.stroke();
-    ctx.fillStyle = "#3a2214";
-    ctx.beginPath();
-    ctx.arc(x + 1, top + 6, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-    // pegs
-    ctx.fillStyle = "#2a1a12";
-    ctx.beginPath();
-    ctx.ellipse(x - nw * 0.55, top + 26, 7, 3.2, -0.3, 0, Math.PI * 2);
-    ctx.ellipse(x + nw * 0.55, top + 22, 7, 3.2, 0.3, 0, Math.PI * 2);
-    ctx.ellipse(x - nw * 0.55, top + 36, 7, 3.2, -0.3, 0, Math.PI * 2);
-    ctx.ellipse(x + nw * 0.55, top + 32, 7, 3.2, 0.3, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  function roundRect(x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-
-  function drawStaff(L) {
-    var y = L.staffY;
-    var x0 = 18;
-    var x1 = W - 18;
-    ctx.fillStyle = "rgba(20,12,22,0.45)";
-    roundRect(x0, y - 8, x1 - x0, 52, 10);
-    ctx.fill();
-
-    var start = play ? play.index : 0;
-    var cx = 28;
-    ctx.font = "600 11px PingFang HK, Noto Sans TC, sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillStyle = "rgba(246,236,216,0.55)";
-    ctx.fillText("《一閃一閃》", x0 + 10, y + 6);
-
-    var slot = Math.min(28, (x1 - 36 - 16) / 12);
-    for (var i = 0; i < 12; i++) {
-      var idx = start + i;
-      var px = x0 + 16 + i * slot;
-      var py = y + 28;
-      if (idx >= SONG.length) {
-        ctx.fillStyle = "rgba(255,255,255,0.08)";
-        ctx.beginPath();
-        ctx.arc(px + 8, py, 3, 0, Math.PI * 2);
-        ctx.fill();
-        continue;
-      }
-      var name = SONG[idx][0];
-      var beats = SONG[idx][1];
-      var isCur = i === 0;
-      var str = NOTE_STRING[name];
-      ctx.save();
-      ctx.translate(px + 8, py);
-      if (isCur) {
-        var p = play.filled / (currentNote() ? currentNote().need : 1);
-        ctx.fillStyle = "rgba(244,196,90,0.25)";
-        ctx.beginPath();
-        ctx.arc(0, 0, 12, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = "#f4c45a";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(0, 0, 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * clamp(p, 0, 1));
-        ctx.stroke();
-      }
-      ctx.fillStyle = isCur ? "#f4c45a" : "rgba(246,236,216,0.8)";
-      starPath(0, 0, beats > 1 ? 4 : 3, beats > 1 ? 9 : 7, 5);
-      ctx.fill();
-      ctx.fillStyle = isCur ? "#fff6e4" : "rgba(246,236,216,0.55)";
-      ctx.font = "600 8px PingFang HK, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(STRING_META[str].id, 0, 18);
-      ctx.restore();
-    }
-  }
-
-  function drawBow(L, time) {
-    var pos = play ? play.bowPos : 0.32;
-    var hairHalf = Math.min(W * 0.42, 160);
-    // Contact stays on the target / current string at bowY.
-    var note = currentNote();
-    var contactX = L.midX;
-    if (play && play.stringIdx >= 0) contactX = L.strings[play.stringIdx];
-    else if (note) contactX = L.strings[note.string];
-
-    // Bow translates so the contact point along the hair matches `pos`
-    // frog at left of hair when pos=0, tip at right when pos=1? 
-    // hair runs from frog (left) to tip (right). Contact at bowY, x=contactX.
-    // The point along the hair at ratio `pos` should sit on contactX.
-    var hairLen = hairHalf * 2;
-    var bowLeft = contactX - pos * hairLen;
-    var bowRight = bowLeft + hairLen;
-    var y = L.bowY;
-    var stickY = y - 7;
-
-    ctx.save();
-    // contact glow
-    if (play && play.touching && play.stringIdx >= 0) {
-      ctx.fillStyle = play.bowEnded ? "rgba(255,120,80,0.35)" : "rgba(244,196,90,0.3)";
-      ctx.beginPath();
-      ctx.arc(contactX, y, 14 + 3 * Math.sin(time * 8), 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // stick
-    var stickGrad = ctx.createLinearGradient(bowLeft, 0, bowRight, 0);
-    stickGrad.addColorStop(0, "#3a2416");
-    stickGrad.addColorStop(0.2, "#8a5a32");
-    stickGrad.addColorStop(0.8, "#6a3e22");
-    stickGrad.addColorStop(1, "#2a1810");
-    ctx.strokeStyle = stickGrad;
-    ctx.lineWidth = 5;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(bowLeft - 10, stickY);
-    ctx.lineTo(bowRight + 6, stickY);
-    ctx.stroke();
-
-    // hair
-    ctx.strokeStyle = play && play.bowEnded ? "rgba(255,180,140,0.85)" : "rgba(255,246,228,0.85)";
-    ctx.lineWidth = 2.2;
-    ctx.beginPath();
-    ctx.moveTo(bowLeft, y);
-    ctx.lineTo(bowRight, y);
-    ctx.stroke();
-    // hair to stick at ends
-    ctx.strokeStyle = "rgba(255,246,228,0.4)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(bowLeft, y);
-    ctx.lineTo(bowLeft, stickY);
-    ctx.moveTo(bowRight, y);
-    ctx.lineTo(bowRight, stickY);
-    ctx.stroke();
-
-    // frog (handle)
-    ctx.fillStyle = "#1a120e";
-    roundRect(bowLeft - 22, stickY - 8, 26, 22, 3);
-    ctx.fill();
-    ctx.fillStyle = "#c0a060";
-    ctx.fillRect(bowLeft - 8, stickY - 4, 8, 14);
-    // tip
-    ctx.fillStyle = "#2a1c14";
-    ctx.beginPath();
-    ctx.moveTo(bowRight, stickY - 5);
-    ctx.lineTo(bowRight + 16, stickY);
-    ctx.lineTo(bowRight, stickY + 6);
-    ctx.closePath();
-    ctx.fill();
-
-    // remaining length ticks on hair
-    ctx.strokeStyle = "rgba(244,196,90,0.7)";
-    ctx.lineWidth = 2;
-    var remainLo = bowLeft;
-    var remainHi = bowRight;
-    if (play) {
-      if (play.bowDir > 0) remainLo = contactX;
-      else if (play.bowDir < 0) remainHi = contactX;
-    }
-    ctx.beginPath();
-    ctx.moveTo(remainLo, y + 6);
-    ctx.lineTo(remainHi, y + 6);
-    ctx.stroke();
-
-    ctx.restore();
-  }
-
-  function drawBowRest(L, time) {
-    // Gentle idle bow on title/result
-    var y = L.bowY;
-    var mid = L.midX;
-    var wobble = Math.sin(time * 0.7) * 10;
-    var left = mid - 120 + wobble;
-    var right = mid + 120 + wobble;
-    ctx.strokeStyle = "#6a3e22";
-    ctx.lineWidth = 5;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(left - 8, y - 7);
-    ctx.lineTo(right + 6, y - 7);
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(255,246,228,0.8)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(left, y);
-    ctx.lineTo(right, y);
-    ctx.stroke();
-    ctx.fillStyle = "#1a120e";
-    roundRect(left - 20, y - 15, 24, 20, 3);
-    ctx.fill();
-  }
-
-  function drawMeter(L) {
-    var x = 24;
-    var y = L.meterY;
-    var w = W - 48;
-    ctx.font = "600 11px PingFang HK, Noto Sans TC, sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillStyle = "rgba(246,236,216,0.7)";
-    ctx.fillText("弓毛", x, y - 8);
-
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
-    roundRect(x, y, w, 8, 4);
-    ctx.fill();
-
-    var pos = play ? play.bowPos : 0.32;
-    // Show used vs remaining in current direction
-    var from, to, warn = false;
-    if (!play || play.bowDir === 0) {
-      from = 0; to = pos;
-    } else if (play.bowDir > 0) {
-      from = pos; to = 1;
-      warn = (1 - pos) < 0.18;
-    } else {
-      from = 0; to = pos;
-      warn = pos < 0.18;
-    }
-    ctx.fillStyle = play && play.bowEnded ? "#ff7a55" : (warn ? "#f4c45a" : "#e8c56a");
-    var rx = x + from * w;
-    var rw = Math.max(2, (to - from) * w);
-    roundRect(rx, y, rw, 8, 4);
-    ctx.fill();
-
-    // frog/tip markers + contact
-    ctx.fillStyle = "#fff6e4";
-    ctx.beginPath();
-    ctx.arc(x + pos * w, y + 4, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "rgba(246,236,216,0.45)";
-    ctx.textAlign = "left";
-    ctx.fillText("弓根", x, y + 22);
-    ctx.textAlign = "right";
-    ctx.fillText("弓尖", x + w, y + 22);
-
-    if (play && (warn || play.bowEnded)) {
-      ctx.textAlign = "center";
-      ctx.fillStyle = play.bowEnded ? "#ff8a7a" : "#f4c45a";
-      ctx.font = "700 13px PingFang HK, Noto Sans TC, sans-serif";
-      ctx.fillText(play.bowEnded ? "拉盡咗，掉轉方向！" : "快要拉盡，準備掉轉", W / 2, y - 8);
-    }
-  }
-
-  function drawPrompts(L, time) {
-    var note = currentNote();
-    if (!note) return;
-    // Direction chevrons
-    if (play && !play.bowEnded) {
-      ctx.save();
-      ctx.globalAlpha = 0.35 + 0.2 * Math.sin(bowHintPulse * 4);
-      ctx.fillStyle = "#f4c45a";
-      var cy = L.bowY - 28;
-      var dir = play.bowDir === 0 ? 1 : play.bowDir;
-      var cx = L.strings[note.string] + dir * 36;
-      ctx.beginPath();
-      if (dir > 0) {
-        ctx.moveTo(cx - 8, cy - 8);
-        ctx.lineTo(cx + 8, cy);
-        ctx.lineTo(cx - 8, cy + 8);
-      } else {
-        ctx.moveTo(cx + 8, cy - 8);
-        ctx.lineTo(cx - 8, cy);
-        ctx.lineTo(cx + 8, cy + 8);
-      }
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Finger hint before first touch
-    if (play && !play.touching && play.index === 0 && play.filled === 0) {
-      var sx = L.strings[note.string];
-      ctx.fillStyle = "rgba(244,196,90,0.15)";
-      ctx.beginPath();
-      ctx.arc(sx, L.bowY, 26 + 4 * Math.sin(time * 4), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#fff6e4";
-      ctx.font = "600 13px PingFang HK, Noto Sans TC, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("撳住發亮嘅弦，向右或向左拉", sx, L.bowY + 48);
-    }
-
-    if (flash.t > 0) {
-      ctx.save();
-      ctx.globalAlpha = clamp(flash.t / 0.4, 0, 1);
-      ctx.fillStyle = flash.color || "#f4c45a";
-      ctx.font = "700 28px Songti TC, PMingLiU, serif";
-      ctx.textAlign = "center";
-      ctx.fillText(flash.text, L.midX, L.bowY - 52);
-      ctx.restore();
-    }
-
-    // Speed caption
-    if (play && play.touching && play.stringIdx === note.string) {
-      var q = qualityFromSpeed(speedEma);
-      var label = {
-        still: "繼續拉……",
-        scratch: "太慢 · 沙啞",
-        rough: "稍慢",
-        clean: "乾淨",
-        thin: "稍快",
-        squeak: "太快 · 尖聲"
-      }[q.band];
-      ctx.font = "600 14px PingFang HK, Noto Sans TC, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillStyle = q.band === "clean" ? "#f4c45a" : (q.band === "squeak" || q.band === "scratch" ? "#ff8a7a" : "#efe4ce");
-      ctx.fillText(label, L.midX, L.fbTop - 18);
-    }
-  }
-
-  function drawSparks() {
-    for (var i = 0; i < sparks.length; i++) {
-      var s = sparks[i];
-      var a = 1 - s.age / s.life;
-      ctx.globalAlpha = a;
-      ctx.fillStyle = s.c;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, 2.2, 0, Math.PI * 2);
+      ctx.arc(s.x * cssW, s.y * cssH, s.r, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
   }
 
-  // ---------- input ----------
-  function onDown(e) {
-    if (state !== "play") return;
-    if (e.target && e.target.closest && e.target.closest("button")) return;
-    pointer.down = true;
-    pointer.id = e.pointerId;
-    pointer.x = e.clientX;
-    pointer.y = e.clientY;
-    pointer.lastX = e.clientX;
-    pointer.lastT = performance.now() / 1000;
-    play.touching = true;
-    play.stringIdx = nearestString(pointer.x, pointer.y);
-    play.stringLocked = play.stringIdx >= 0 && play.grace <= 0;
-    play.bowEnded = play.bowPos <= 0.001 || play.bowPos >= 0.999;
-    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
-    synth.resume();
-    if (e.cancelable) e.preventDefault();
-  }
+  function drawStaff(L, now, trace, playing) {
+    ctx.fillStyle = "rgba(8,6,18,0.55)";
+    ctx.fillRect(0, 0, cssW, L.staffH);
+    ctx.strokeStyle = "rgba(244,196,90,0.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, L.staffH - 0.5);
+    ctx.lineTo(cssW, L.staffH - 0.5);
+    ctx.stroke();
 
-  function onMove(e) {
-    if (!pointer.down || (pointer.id != null && e.pointerId !== pointer.id)) return;
-    var t = performance.now() / 1000;
-    var dt = Math.max(0.001, t - pointer.lastT);
-    var dx = e.clientX - pointer.lastX;
-    pointer.x = e.clientX;
-    pointer.y = e.clientY;
-    if (!play.stringLocked || play.grace > 0) {
-      play.stringIdx = nearestString(pointer.x, pointer.y);
+    const rows = laneRow(L);
+    for (let i = 0; i < 4; i++) {
+      const y = rows.top + rows.h * i;
+      ctx.fillStyle = i % 2 === 0 ? "rgba(255,246,228,0.03)" : "rgba(255,246,228,0.015)";
+      ctx.fillRect(0, y, cssW, rows.h);
+      ctx.fillStyle = "rgba(246,236,216,0.45)";
+      ctx.font = "11px PingFang HK, Noto Sans TC, sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(E.LANE_NAMES[i], 8, y + rows.h * 0.5);
     }
-    applyBowDelta(dx, dt);
-    pointer.lastX = e.clientX;
-    pointer.lastT = t;
-    if (e.cancelable) e.preventDefault();
-  }
 
-  function onUp(e) {
-    if (!pointer.down) return;
-    if (pointer.id != null && e.pointerId !== pointer.id) return;
-    pointer.down = false;
-    pointer.id = null;
-    if (play) {
-      play.touching = false;
-      play.stringIdx = -1;
+    // Upcoming (and just-passed) notes
+    for (let i = 0; i < E.NOTES.length; i++) {
+      const n = E.NOTES[i];
+      const x0 = xAt(L, n.start, now);
+      const x1 = xAt(L, n.end, now);
+      if (x1 < -20 || x0 > cssW + 20) continue;
+      const y = rows.top + rows.h * n.lane + 5;
+      const h = rows.h - 10;
+      const w = Math.max(6, x1 - x0 - 2);
+      ctx.fillStyle = n.start <= now && now < n.end ? "#f4d56a" : "rgba(232,196,90,0.72)";
+      roundedRect(ctx, x0, y, w, h, 7);
+      ctx.fill();
+      if (n.start <= now && now < n.end) {
+        ctx.strokeStyle = "rgba(255,246,228,0.7)";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
     }
-    speedEma *= 0.3;
-    synth.setBow({ active: false });
+
+    drawTrace(L, now, trace, rows);
+
+    // Playhead
+    ctx.strokeStyle = COLORS.playhead;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(L.playX, rows.top - 2);
+    ctx.lineTo(L.playX, rows.top + rows.h * 4);
+    ctx.stroke();
+    ctx.fillStyle = COLORS.playhead;
+    ctx.beginPath();
+    ctx.moveTo(L.playX, rows.top - 6);
+    ctx.lineTo(L.playX - 5, rows.top + 4);
+    ctx.lineTo(L.playX + 5, rows.top + 4);
+    ctx.closePath();
+    ctx.fill();
+
+    if (playing && now < E.LEAD) {
+      const beat = Math.min(3, Math.floor(now / E.BEAT));
+      ctx.fillStyle = COLORS.cream;
+      ctx.font = "bold 28px Songti TC, PMingLiU, serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.globalAlpha = 0.9;
+      ctx.fillText(String(4 - beat), L.playX + 36, rows.top + rows.h * 2);
+      ctx.globalAlpha = 1;
+    }
   }
 
-  canvas.addEventListener("pointerdown", onDown, { passive: false });
-  window.addEventListener("pointermove", onMove, { passive: false });
-  window.addEventListener("pointerup", onUp, { passive: false });
-  window.addEventListener("pointercancel", onUp, { passive: false });
+  function drawTrace(L, now, trace, rows) {
+    if (!trace || !trace.length) return;
+    const midY = function (lanes, fallback) {
+      if (!lanes || !lanes.length) return fallback;
+      let s = 0;
+      for (let i = 0; i < lanes.length; i++) s += rows.top + rows.h * (lanes[i] + 0.5);
+      return s / lanes.length;
+    };
 
-  els.start.addEventListener("click", function () { synth.resume(); startGame(); });
-  els.retry.addEventListener("click", function () { synth.resume(); startGame(); });
-  els.home.addEventListener("click", function () {
-    synth.setBow({ active: false });
-    showScreen("title");
-  });
-  els.mute.addEventListener("click", function () { setMuted(!muted); });
-  els.muteTitle.addEventListener("click", function () { setMuted(!muted); });
+    for (let i = 1; i < trace.length; i++) {
+      const a = trace[i - 1];
+      const b = trace[i];
+      if (b.t > now + 0.01) break;
+      const x0 = xAt(L, a.t, now);
+      const x1 = xAt(L, b.t, now);
+      if (x1 < 0 && x0 < 0) continue;
+      if (x0 > L.playX + 2) continue;
+      const kind = a.kind;
+      if (kind === "silent") continue;
+
+      const y0 = midY(a.lanes, rows.top + rows.h * 2);
+      const y1 = midY(b.lanes, y0);
+
+      if (kind === "double" && a.lanes.length >= 2) {
+        ctx.strokeStyle = COLORS.dble;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        for (let k = 0; k < 2; k++) {
+          const ya = rows.top + rows.h * (a.lanes[k] + 0.5) + (k ? 3 : -3);
+          const yb = rows.top + rows.h * ((b.lanes[k] != null ? b.lanes[k] : a.lanes[k]) + 0.5) + (k ? 3 : -3);
+          ctx.beginPath();
+          ctx.moveTo(x0, ya);
+          ctx.lineTo(Math.min(x1, L.playX), yb);
+          ctx.stroke();
+        }
+        continue;
+      }
+
+      ctx.setLineDash(kind === "suka" ? [2, 4] : []);
+      ctx.lineWidth = kind === "suka" ? 1.2 : kind === "click" ? 3 : 2.4;
+      ctx.strokeStyle =
+        kind === "gii" ? COLORS.gii :
+        kind === "suka" ? COLORS.suka :
+        kind === "wrong" ? COLORS.wrong :
+        kind === "click" ? COLORS.click :
+        COLORS.clean;
+
+      ctx.beginPath();
+      if (kind === "gii") {
+        const steps = Math.max(2, Math.ceil(Math.abs(x1 - x0) / 3));
+        for (let s = 0; s <= steps; s++) {
+          const u = s / steps;
+          const x = x0 + (Math.min(x1, L.playX) - x0) * u;
+          const y = y0 + (y1 - y0) * u + Math.sin((a.t + u * 0.05) * 48) * 4.5;
+          if (s === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+      } else {
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(Math.min(x1, L.playX), y1);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function drawViolinPad(L, now) {
+    const x = 0;
+    const y = L.padTop;
+    const w = cssW;
+    const h = L.padH;
+
+    const wood = ctx.createLinearGradient(0, y, 0, y + h);
+    wood.addColorStop(0, "#24140e");
+    wood.addColorStop(0.5, "#3a2214");
+    wood.addColorStop(1, "#1a0e0a");
+    ctx.fillStyle = wood;
+    ctx.fillRect(x, y, w, h);
+
+    // Instrument body, seen from above, neck to the left, E on top, G at the bottom.
+    const cx = w * 0.58;
+    const cy = y + h * 0.52;
+    const bw = Math.min(w * 0.86, h * 1.35);
+    const bh = h * 0.86;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    drawBody(bw, bh);
+    ctx.restore();
+
+    // Four horizontal string lanes (E top → G bottom)
+    const lanePad = h * 0.1;
+    const laneArea = h - lanePad * 2;
+    const laneH = laneArea / 4;
+    const strX0 = w * 0.1;
+    const strX1 = w * 0.92;
+
+    for (let i = 0; i < 4; i++) {
+      const sy = y + lanePad + laneH * (i + 0.5);
+      const active = engine.lanes.indexOf(i) !== -1 && engine.kind !== "silent";
+      ctx.strokeStyle = active ? "#ffe9a0" : COLORS.string;
+      ctx.globalAlpha = active ? 1 : 0.7;
+      ctx.lineWidth = active ? 3.2 : 2;
+      ctx.beginPath();
+      ctx.moveTo(strX0, sy);
+      ctx.lineTo(strX1, sy);
+      ctx.stroke();
+      if (active) {
+        ctx.globalAlpha = 0.18;
+        ctx.strokeStyle = COLORS.gold;
+        ctx.lineWidth = laneH * 0.7;
+        ctx.beginPath();
+        ctx.moveTo(strX0, sy);
+        ctx.lineTo(strX1, sy);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = active ? COLORS.gold : "rgba(246,236,216,0.4)";
+      ctx.font = "12px PingFang HK, Noto Sans TC, sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(E.LANE_NAMES[i], 10, sy);
+    }
+
+    // Pegbox / tail hints
+    ctx.fillStyle = "rgba(42,22,12,0.9)";
+    roundedRect(ctx, w * 0.02, y + h * 0.22, w * 0.08, h * 0.56, 8);
+    ctx.fill();
+    roundedRect(ctx, w * 0.9, y + h * 0.28, w * 0.08, h * 0.44, 6);
+    ctx.fill();
+
+    drawBow(L, w, y, h, lanePad, laneH, strX0, strX1);
+
+    if (input.pointerDown && screen === "play") {
+      ctx.fillStyle = "rgba(244,196,90,0.9)";
+      ctx.beginPath();
+      ctx.arc(input.lastX, input.lastY, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,246,228,0.8)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    if (screen === "play") drawPops(now);
+    if (screen === "play" && showHint) drawHint(L);
+  }
+
+  function drawBody(bw, bh) {
+    ctx.fillStyle = "#4a2a16";
+    ctx.beginPath();
+    // Upper / left bout and lower / right bout of a face-up violin.
+    ctx.moveTo(-bw * 0.46, 0);
+    ctx.bezierCurveTo(-bw * 0.46, -bh * 0.42, -bw * 0.12, -bh * 0.48, bw * 0.02, -bh * 0.28);
+    ctx.bezierCurveTo(bw * 0.12, -bh * 0.16, bw * 0.14, -bh * 0.12, bw * 0.2, -bh * 0.18);
+    ctx.bezierCurveTo(bw * 0.42, -bh * 0.38, bw * 0.5, -bh * 0.46, bw * 0.48, -bh * 0.08);
+    ctx.bezierCurveTo(bw * 0.47, bh * 0.46, bw * 0.42, bh * 0.38, bw * 0.2, bh * 0.18);
+    ctx.bezierCurveTo(bw * 0.14, bh * 0.12, bw * 0.12, bh * 0.16, bw * 0.02, bh * 0.28);
+    ctx.bezierCurveTo(-bw * 0.12, bh * 0.48, -bw * 0.46, bh * 0.42, -bw * 0.46, 0);
+    ctx.closePath();
+    const grd = ctx.createLinearGradient(0, -bh / 2, 0, bh / 2);
+    grd.addColorStop(0, "#6a3d1c");
+    grd.addColorStop(0.5, "#4a2814");
+    grd.addColorStop(1, "#2e180c");
+    ctx.fillStyle = grd;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(244,196,90,0.18)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // F-holes, original simple curls (not copied from any mark).
+    ctx.strokeStyle = "rgba(12,8,6,0.75)";
+    ctx.lineWidth = 2;
+    fHole(bw * 0.22, -bh * 0.16, 1);
+    fHole(bw * 0.22, bh * 0.16, -1);
+
+    // Fingerboard
+    ctx.fillStyle = "#1a1210";
+    roundedRect(ctx, -bw * 0.5, -bh * 0.13, bw * 0.52, bh * 0.26, 4);
+    ctx.fill();
+
+    // Bridge
+    ctx.fillStyle = "#d8c8a8";
+    roundedRect(ctx, bw * 0.14, -bh * 0.2, 6, bh * 0.4, 1);
+    ctx.fill();
+  }
+
+  function fHole(x, y, sign) {
+    ctx.beginPath();
+    ctx.moveTo(x - 10, y - 18 * sign);
+    ctx.quadraticCurveTo(x + 8, y - 8 * sign, x - 4, y);
+    ctx.quadraticCurveTo(x - 14, y + 10 * sign, x + 6, y + 18 * sign);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x - 8, y - 18 * sign, 3.2, 0, Math.PI * 2);
+    ctx.arc(x + 4, y + 18 * sign, 3.2, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(12,8,6,0.75)";
+    ctx.fill();
+  }
+
+  function drawBow(L, w, y, h, lanePad, laneH, strX0, strX1) {
+    const s = engine.s;
+    // Contact sits in the middle of the strings; s=0 frog at contact, s=1 tip at contact.
+    const contactX = strX0 + (strX1 - strX0) * 0.55;
+    const bowLen = Math.min(h * 1.05, cssW * 0.7);
+    // Bow is vertical. At s=0, frog (lower end) is at contact; as s grows, the stick slides
+    // so the contact point moves from frog (bottom) toward the tip (top).
+    const frogY = contactX; // unused; we use x for travel
+    // Horizontal travel: frog-to-tip along X? No — strings run horizontally, bow is vertical,
+    // travel is along the string = X. The stick itself is vertical.
+    // Position the whole bow so the contact point along the hair maps to s.
+    const hairTop = y + h * 0.04;
+    const hairBot = y + h * 0.96;
+    const hairLen = hairBot - hairTop;
+    // Contact is at a fixed X, and along the hair: contactY is the average of active strings, or mid.
+    let contactY = y + lanePad + laneH * 2;
+    if (engine.lanes.length) {
+      contactY = y + lanePad + laneH * (engine.lanes.reduce((a, b) => a + b, 0) / engine.lanes.length + 0.5);
+    } else if (input.hadPad && input.padY != null) {
+      contactY = y + input.padY * h;
+    }
+
+    // s=0: frog (bottom of stick) at contactY; s=1: tip (top) at contactY.
+    const tipY = contactY - (1 - s) * hairLen;
+    const frogAt = tipY + hairLen;
+    const stickX = contactX + (s - 0.5) * 0; // stay on the contact X (travel is along string visually?)
+    // Visual bow travel: shift the stick left-right so the player sees the bow move with the finger.
+    // Map s to an X offset: s=0 (frog on strings) slightly right, s=1 slightly left? Brief: moving
+    // right increases s (toward tip). So the bow slides right as s increases (frog goes right).
+    const travel = (s - 0.5) * Math.min(w * 0.42, 160);
+    const bx = contactX + travel;
+
+    ctx.save();
+    ctx.translate(bx, 0);
+    ctx.strokeStyle = "rgba(216,200,168,0.9)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, tipY);
+    ctx.lineTo(0, frogAt);
+    ctx.stroke();
+
+    // Stick
+    ctx.strokeStyle = "#c4a36a";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(5, tipY - 6);
+    ctx.lineTo(6, frogAt + 4);
+    ctx.stroke();
+
+    // Tip
+    ctx.fillStyle = "#e8d4a4";
+    roundedRect(ctx, -3, tipY - 14, 12, 16, 3);
+    ctx.fill();
+
+    // Frog
+    ctx.fillStyle = "#1a1210";
+    roundedRect(ctx, -10, frogAt - 6, 22, 28, 4);
+    ctx.fill();
+    ctx.fillStyle = "#8a5a2e";
+    roundedRect(ctx, -6, frogAt + 4, 14, 10, 2);
+    ctx.fill();
+
+    // Contact glow
+    if (engine.kind !== "silent" && engine.pointerDown) {
+      ctx.fillStyle = "rgba(244,196,90,0.35)";
+      ctx.beginPath();
+      ctx.arc(0, contactY, 11, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Remaining-bow meter
+    const meterX = w - 18;
+    const meterY = y + 16;
+    const meterH = h - 32;
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    roundedRect(ctx, meterX - 5, meterY, 10, meterH, 5);
+    ctx.fill();
+    const fillH = meterH * (1 - Math.abs(s - 0) /* remaining toward farther end not needed */);
+    // Show position: marker at s (0 bottom = frog, 1 top = tip)
+    const my = meterY + meterH * (1 - s);
+    ctx.strokeStyle = "rgba(244,196,90,0.4)";
+    ctx.lineWidth = 2;
+    roundedRect(ctx, meterX - 5, meterY, 10, meterH, 5);
+    ctx.stroke();
+    ctx.fillStyle = engine.ranOut ? COLORS.gii : COLORS.gold;
+    ctx.beginPath();
+    ctx.arc(meterX, my, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawPops(now) {
+    const pops = engine.pops;
+    for (let i = 0; i < pops.length; i++) {
+      const p = pops[i];
+      const age = engine.time - p.time;
+      if (age < 0 || age > 0.9) continue;
+      const u = age / 0.9;
+      const L = layout();
+      const x = cssW * 0.5;
+      const y = L.padTop + 36 + (1 - u) * 18;
+      ctx.globalAlpha = 1 - u;
+      ctx.fillStyle = p.kind === "end" || p.kind === "click" ? COLORS.cream : COLORS.gold;
+      ctx.font = "bold 28px Songti TC, PMingLiU, serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(p.label, x, y);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawHint(L) {
+    const x = cssW * 0.5;
+    const y = L.padTop + L.padH * 0.5;
+    ctx.fillStyle = "rgba(8,6,16,0.62)";
+    roundedRect(ctx, 24, y - 58, cssW - 48, 116, 16);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(244,196,90,0.35)";
+    ctx.stroke();
+    ctx.fillStyle = COLORS.cream;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 20px PingFang HK, Noto Sans TC, sans-serif";
+    ctx.fillText("上下揀弦，左右拉弓", x, y - 16);
+    ctx.font = "15px PingFang HK, Noto Sans TC, sans-serif";
+    ctx.fillStyle = "#e8d4a4";
+    ctx.fillText("跟住拍子嚟；撳住就可以開始", x, y + 16);
+  }
+
+  function drawTraceCard(result) {
+    const c = traceCtx;
+    const w = traceCard.width;
+    const h = traceCard.height;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.fillStyle = "#120a16";
+    c.fillRect(0, 0, w, h);
+
+    const top = 22;
+    const rowH = (h - 36) / 4;
+    const playX = 36;
+    const span = E.SONG_END - E.LEAD;
+    const px = (w - 52) / span;
+    const now = E.SONG_END;
+
+    c.fillStyle = "rgba(246,236,216,0.4)";
+    c.font = "11px sans-serif";
+    c.textAlign = "left";
+    c.textBaseline = "middle";
+    for (let i = 0; i < 4; i++) {
+      c.fillStyle = i % 2 === 0 ? "rgba(255,246,228,0.04)" : "rgba(255,246,228,0.02)";
+      c.fillRect(0, top + rowH * i, w, rowH);
+      c.fillStyle = "rgba(246,236,216,0.45)";
+      c.fillText(E.LANE_NAMES[i], 6, top + rowH * (i + 0.5));
+    }
+
+    function X(t) {
+      return playX + (t - E.LEAD) * px;
+    }
+
+    for (let i = 0; i < E.NOTES.length; i++) {
+      const n = E.NOTES[i];
+      const x0 = X(n.start);
+      const x1 = X(n.end);
+      c.fillStyle = "rgba(232,196,90,0.55)";
+      const rr = 4;
+      const yy = top + rowH * n.lane + 4;
+      const hh = rowH - 8;
+      c.beginPath();
+      c.moveTo(x0 + rr, yy);
+      c.arcTo(x1, yy, x1, yy + hh, rr);
+      c.arcTo(x1, yy + hh, x0, yy + hh, rr);
+      c.arcTo(x0, yy + hh, x0, yy, rr);
+      c.arcTo(x0, yy, x1, yy, rr);
+      c.closePath();
+      c.fill();
+    }
+
+    const fakeL = {
+      playX: w,
+      pxPerSec: px,
+    };
+    // Draw the recorded trace across the whole song (history of the take).
+    const rows = { top: top, h: rowH };
+    const trace = result.trace || [];
+    for (let i = 1; i < trace.length; i++) {
+      const a = trace[i - 1];
+      const b = trace[i];
+      if (a.t < E.LEAD - 0.05 || a.t > E.SONG_END + 0.05) continue;
+      if (a.kind === "silent") continue;
+      const x0 = X(a.t);
+      const x1 = X(b.t);
+      const mid = function (lanes) {
+        if (!lanes || !lanes.length) return top + rowH * 2;
+        let s = 0;
+        for (let k = 0; k < lanes.length; k++) s += top + rowH * (lanes[k] + 0.5);
+        return s / lanes.length;
+      };
+      if (a.kind === "double" && a.lanes.length >= 2) {
+        c.strokeStyle = COLORS.dble;
+        c.lineWidth = 1.6;
+        c.setLineDash([]);
+        for (let k = 0; k < 2; k++) {
+          c.beginPath();
+          c.moveTo(x0, top + rowH * (a.lanes[k] + 0.5) + (k ? 2 : -2));
+          c.lineTo(x1, top + rowH * ((b.lanes[k] != null ? b.lanes[k] : a.lanes[k]) + 0.5) + (k ? 2 : -2));
+          c.stroke();
+        }
+        continue;
+      }
+      c.setLineDash(a.kind === "suka" ? [2, 3] : []);
+      c.lineWidth = a.kind === "suka" ? 1 : 1.8;
+      c.strokeStyle =
+        a.kind === "gii" ? COLORS.gii :
+        a.kind === "suka" ? COLORS.suka :
+        a.kind === "wrong" ? COLORS.wrong :
+        a.kind === "click" ? COLORS.click :
+        COLORS.clean;
+      c.beginPath();
+      if (a.kind === "gii") {
+        const steps = Math.max(2, Math.ceil(Math.abs(x1 - x0) / 2));
+        for (let s = 0; s <= steps; s++) {
+          const u = s / steps;
+          const x = x0 + (x1 - x0) * u;
+          const y = mid(a.lanes) + Math.sin((a.t + u * 0.05) * 48) * 3;
+          if (s === 0) c.moveTo(x, y);
+          else c.lineTo(x, y);
+        }
+      } else {
+        c.moveTo(x0, mid(a.lanes));
+        c.lineTo(x1, mid(b.lanes));
+      }
+      c.stroke();
+      c.setLineDash([]);
+    }
+
+    c.strokeStyle = "rgba(255,240,176,0.35)";
+    c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(X(E.SONG_END), top);
+    c.lineTo(X(E.SONG_END), top + rowH * 4);
+    c.stroke();
+  }
+
+  function paintIdle() {
+    const L = layout();
+    drawBackground(performance.now() / 1000);
+    drawStaff(L, 0, [], false);
+    drawViolinPad(L, 0);
+  }
+
+  function loop(ts) {
+    if (!lastFrame) lastFrame = ts;
+    lastFrame = ts;
+    const L = layout();
+
+    if (screen === "play") {
+      const t = nowT();
+      let dt = t - engine.time;
+      if (dt > 0.08) dt = 0.08;
+      if (dt > 0) {
+        engine.step(dt, consumeInput());
+        if (engine.kind === "click" && !lastClickState) audio.playClick();
+        lastClickState = engine.kind === "click";
+        audio.update(engine);
+        const live = engine.liveShown();
+        el.hudScore.textContent = live == null ? "—" : live.toFixed(1);
+        if (engine.finished || t >= E.RESULT_AT) {
+          // Catch up to the end once, then settle on the result screen.
+          finishPlay();
+        }
+      }
+    } else {
+      audio.stopVoices();
+    }
+
+    const now = screen === "play" ? engine.time : 0;
+    drawBackground(performance.now() / 1000);
+    drawStaff(L, now, screen === "play" ? engine.trace : (lastResult && screen === "result" ? [] : []), screen === "play");
+    if (screen === "result") {
+      // Staff stays decorative behind the overlay; pad still visible at the sides.
+    }
+    drawViolinPad(L, now);
+
+    requestAnimationFrame(loop);
+  }
 
   window.addEventListener("resize", resize);
-  window.addEventListener("orientationchange", function () { setTimeout(resize, 80); });
+  window.addEventListener("orientationchange", function () {
+    setTimeout(resize, 80);
+  });
 
-  // Block default page scroll / pinch while playing
-  document.addEventListener("gesturestart", function (e) { e.preventDefault(); }, { passive: false });
-  document.addEventListener("touchmove", function (e) {
-    if (state === "play") e.preventDefault();
-  }, { passive: false });
-
-  initStars();
+  setMuted(muted);
   resize();
   showScreen("title");
-  setMuted(false);
-  requestAnimationFrame(tick);
+  requestAnimationFrame(loop);
 })();

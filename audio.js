@@ -1,296 +1,368 @@
-/* Original Web Audio bow timbre. No sampled assets. */
-(function (global) {
+/**
+ * 弓弦星 — original Web Audio synthesis.
+ * Bowed-string tone, piano accompaniment, count-in ticks.
+ * No samples, no CDN.
+ */
+(function (root) {
   "use strict";
 
-  function clamp(v, a, b) {
-    return Math.max(a, Math.min(b, v));
+  function makeNoiseBuffer(ctx, seconds) {
+    const n = Math.max(1, Math.floor(ctx.sampleRate * seconds));
+    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
+    return buf;
   }
 
-  function BowSynth() {
+  function ramps(param, value, t, attack) {
+    param.cancelScheduledValues(t);
+    const cur = param.value;
+    param.setValueAtTime(cur, t);
+    param.linearRampToValueAtTime(value, t + (attack || 0.02));
+  }
+
+  function BowStarAudio() {
     this.ctx = null;
     this.master = null;
-    this.comp = null;
+    this.violinBus = null;
+    this.accBus = null;
+    this.voices = [];
+    this.noiseBuf = null;
+    this.unlocked = false;
     this.muted = false;
-    this._muteGain = null;
-    this._voice = null;
-    this._started = false;
+    this._accNodes = [];
   }
 
-  BowSynth.prototype._ensure = function () {
-    if (this.ctx) return;
-    var Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    var ctx = new Ctx();
-    var mute = ctx.createGain();
-    mute.gain.value = this.muted ? 0 : 1;
-    var master = ctx.createGain();
-    master.gain.value = 0.22;
-    var comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -18;
-    comp.knee.value = 12;
-    comp.ratio.value = 3;
-    comp.attack.value = 0.01;
-    comp.release.value = 0.12;
-    master.connect(comp);
-    comp.connect(mute);
-    mute.connect(ctx.destination);
-    this.ctx = ctx;
-    this.master = master;
-    this.comp = comp;
-    this._muteGain = mute;
-  };
-
-  BowSynth.prototype.resume = function () {
-    this._ensure();
-    if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
-  };
-
-  BowSynth.prototype.setMuted = function (muted) {
+  BowStarAudio.prototype.setMuted = function (muted) {
     this.muted = !!muted;
-    if (this._muteGain && this.ctx) {
-      this._muteGain.gain.setTargetAtTime(this.muted ? 0 : 1, this.ctx.currentTime, 0.03);
+    if (this.master && this.ctx) {
+      this.master.gain.setTargetAtTime(this.muted ? 0 : 1, this.ctx.currentTime, 0.02);
     }
   };
 
-  BowSynth.prototype._buildVoice = function () {
-    var ctx = this.ctx;
-    var voice = {};
+  BowStarAudio.prototype.unlock = function () {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return Promise.resolve(false);
+    if (!this.ctx) {
+      const ctx = new AudioCtx();
+      this.ctx = ctx;
+      this.master = ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : 1;
+      this.master.connect(ctx.destination);
 
-    voice.oscA = ctx.createOscillator();
-    voice.oscB = ctx.createOscillator();
-    voice.oscC = ctx.createOscillator();
-    voice.oscA.type = "sawtooth";
-    voice.oscB.type = "triangle";
-    voice.oscC.type = "square";
+      this.violinBus = ctx.createGain();
+      this.violinBus.gain.value = 0.9;
+      this.violinBus.connect(this.master);
 
-    voice.freqA = ctx.createGain(); // just holders for detune control via osc
-    voice.gainA = ctx.createGain();
-    voice.gainB = ctx.createGain();
-    voice.gainC = ctx.createGain();
-    voice.gainA.gain.value = 0;
-    voice.gainB.gain.value = 0;
-    voice.gainC.gain.value = 0;
+      this.accBus = ctx.createGain();
+      this.accBus.gain.value = 0.7;
+      this.accBus.connect(this.master);
 
-    voice.lp = ctx.createBiquadFilter();
-    voice.lp.type = "lowpass";
-    voice.lp.frequency.value = 1800;
-    voice.lp.Q.value = 0.7;
-
-    voice.bp = ctx.createBiquadFilter();
-    voice.bp.type = "bandpass";
-    voice.bp.frequency.value = 900;
-    voice.bp.Q.value = 1.1;
-
-    voice.hp = ctx.createBiquadFilter();
-    voice.hp.type = "highpass";
-    voice.hp.frequency.value = 180;
-    voice.hp.Q.value = 0.5;
-
-    voice.body = ctx.createBiquadFilter();
-    voice.body.type = "peaking";
-    voice.body.frequency.value = 700;
-    voice.body.Q.value = 1.4;
-    voice.body.gain.value = 4;
-
-    // Scratch / bow noise
-    var nLen = 2 * ctx.sampleRate;
-    var buf = ctx.createBuffer(1, nLen, ctx.sampleRate);
-    var data = buf.getChannelData(0);
-    var brown = 0;
-    for (var i = 0; i < nLen; i++) {
-      var white = Math.random() * 2 - 1;
-      brown = clamp(brown + white * 0.02, -1, 1);
-      data[i] = white * 0.55 + brown * 0.45;
+      this.noiseBuf = makeNoiseBuffer(ctx, 1.8);
+      this.voices = [0, 1, 2, 3].map(function () {
+        return createVoice(ctx);
+      });
+      this.voices.forEach((v) => v.out.connect(this.violinBus));
     }
-    voice.noise = ctx.createBufferSource();
-    voice.noise.buffer = buf;
-    voice.noise.loop = true;
-    voice.noiseGain = ctx.createGain();
-    voice.noiseGain.gain.value = 0;
-    voice.noiseBp = ctx.createBiquadFilter();
-    voice.noiseBp.type = "bandpass";
-    voice.noiseBp.frequency.value = 800;
-    voice.noiseBp.Q.value = 0.8;
-    voice.noiseHp = ctx.createBiquadFilter();
-    voice.noiseHp.type = "highpass";
-    voice.noiseHp.frequency.value = 400;
-
-    // Flutter LFO for scratchy slow bows
-    voice.lfo = ctx.createOscillator();
-    voice.lfo.type = "sine";
-    voice.lfo.frequency.value = 5.5;
-    voice.lfoGain = ctx.createGain();
-    voice.lfoGain.gain.value = 0;
-    voice.amp = ctx.createGain();
-    voice.amp.gain.value = 0;
-
-    voice.oscA.connect(voice.gainA);
-    voice.oscB.connect(voice.gainB);
-    voice.oscC.connect(voice.gainC);
-    voice.gainA.connect(voice.lp);
-    voice.gainB.connect(voice.lp);
-    voice.gainC.connect(voice.hp);
-    voice.lp.connect(voice.body);
-    voice.hp.connect(voice.body);
-    voice.body.connect(voice.bp);
-    voice.bp.connect(voice.amp);
-
-    voice.noise.connect(voice.noiseHp);
-    voice.noiseHp.connect(voice.noiseBp);
-    voice.noiseBp.connect(voice.noiseGain);
-    voice.noiseGain.connect(voice.amp);
-
-    voice.lfo.connect(voice.lfoGain);
-    voice.lfoGain.connect(voice.amp.gain);
-
-    voice.amp.connect(this.master);
-
-    var t = ctx.currentTime;
-    voice.oscA.start(t);
-    voice.oscB.start(t);
-    voice.oscC.start(t);
-    voice.noise.start(t);
-    voice.lfo.start(t);
-    this._started = true;
-    return voice;
+    const ctx = this.ctx;
+    const p = ctx.state === "suspended" ? ctx.resume() : Promise.resolve();
+    return p.then(() => {
+      this.unlocked = true;
+      this.setMuted(this.muted);
+      return true;
+    });
   };
 
-  BowSynth.prototype._voiceReady = function () {
-    this._ensure();
-    if (!this.ctx) return null;
-    if (!this._voice) this._voice = this._buildVoice();
-    return this._voice;
+  function createVoice(ctx) {
+    const saw = ctx.createOscillator();
+    saw.type = "sawtooth";
+    const body = ctx.createOscillator();
+    body.type = "triangle";
+
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 6;
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 80;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 2800;
+    lp.Q.value = 0.7;
+
+    const oscGain = ctx.createGain();
+    oscGain.gain.value = 0;
+
+    saw.connect(hp);
+    body.connect(hp);
+    hp.connect(bp);
+    bp.connect(lp);
+    lp.connect(oscGain);
+
+    const nSrc = ctx.createBufferSource();
+    // buffer filled later
+    const nBp = ctx.createBiquadFilter();
+    nBp.type = "bandpass";
+    nBp.frequency.value = 800;
+    nBp.Q.value = 1.2;
+    const nHp = ctx.createBiquadFilter();
+    nHp.type = "highpass";
+    nHp.frequency.value = 400;
+    const nGain = ctx.createGain();
+    nGain.gain.value = 0;
+    nSrc.loop = true;
+
+    const out = ctx.createGain();
+    out.gain.value = 1;
+    oscGain.connect(out);
+    nGain.connect(out);
+
+    const lfo = ctx.createOscillator();
+    lfo.type = "sine";
+    lfo.frequency.value = 8;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 0;
+    lfo.connect(lfoGain);
+    lfoGain.connect(oscGain.gain);
+
+    saw.start();
+    body.start();
+    lfo.start();
+
+    return {
+      saw: saw,
+      body: body,
+      bp: bp,
+      hp: hp,
+      lp: lp,
+      oscGain: oscGain,
+      nSrc: nSrc,
+      nBp: nBp,
+      nHp: nHp,
+      nGain: nGain,
+      lfo: lfo,
+      lfoGain: lfoGain,
+      out: out,
+      startedNoise: false,
+      lastFreq: 440,
+    };
+  }
+
+  BowStarAudio.prototype._ensureNoise = function (voice) {
+    if (voice.startedNoise || !this.noiseBuf) return;
+    voice.nSrc.buffer = this.noiseBuf;
+    voice.nSrc.connect(voice.nHp);
+    voice.nHp.connect(voice.nBp);
+    voice.nBp.connect(voice.nGain);
+    try {
+      voice.nSrc.start();
+    } catch (e) {
+      /* already started */
+    }
+    voice.startedNoise = true;
   };
 
-  /**
-   * Update the sounding bow.
-   * opts: {
-   *   active: bool,
-   *   freq: number,
-   *   quality: -1 (slow) .. 0 (clean) .. +1 (fast),
-   *   ended: bool (bow hair ran out),
-   *   wrong: bool,
-   *   intensity: 0..1 bow speed magnitude scaled
-   * }
-   */
-  BowSynth.prototype.setBow = function (opts) {
-    var voice = this._voiceReady();
-    if (!voice) return;
-    var ctx = this.ctx;
-    var t = ctx.currentTime;
-    var atk = 0.04;
-
-    if (!opts || !opts.active) {
-      voice.amp.gain.setTargetAtTime(0, t, 0.05);
-      voice.noiseGain.gain.setTargetAtTime(0, t, 0.04);
-      voice.lfoGain.gain.setTargetAtTime(0, t, 0.04);
-      return;
-    }
-
-    var freq = Math.max(80, opts.freq || 261.63);
-    var q = clamp(opts.quality || 0, -1, 1);
-    var intensity = clamp(opts.intensity == null ? 0.6 : opts.intensity, 0, 1);
-
-    voice.oscA.frequency.setTargetAtTime(freq, t, 0.02);
-    voice.oscB.frequency.setTargetAtTime(freq * 1.003, t, 0.02);
-    voice.oscC.frequency.setTargetAtTime(freq * 2.01, t, 0.02);
-
-    var clean = 1 - Math.abs(q);
-    var slow = q < 0 ? -q : 0;
-    var fast = q > 0 ? q : 0;
-
-    if (opts.ended) {
-      voice.gainA.gain.setTargetAtTime(0.08, t, atk);
-      voice.gainB.gain.setTargetAtTime(0.02, t, atk);
-      voice.gainC.gain.setTargetAtTime(0.04, t, atk);
-      voice.lp.frequency.setTargetAtTime(700, t, atk);
-      voice.bp.frequency.setTargetAtTime(500, t, atk);
-      voice.noiseBp.frequency.setTargetAtTime(600, t, atk);
-      voice.noiseGain.gain.setTargetAtTime(0.55, t, 0.02);
-      voice.lfo.frequency.setTargetAtTime(14, t, 0.03);
-      voice.lfoGain.gain.setTargetAtTime(0.08, t, 0.03);
-      voice.amp.gain.setTargetAtTime(0.55 * intensity + 0.2, t, 0.03);
-      return;
-    }
-
-    if (opts.wrong) {
-      voice.oscA.frequency.setTargetAtTime(freq * 1.12, t, 0.01);
-      voice.oscB.frequency.setTargetAtTime(freq * 0.81, t, 0.01);
-      voice.gainA.gain.setTargetAtTime(0.2, t, atk);
-      voice.gainB.gain.setTargetAtTime(0.08, t, atk);
-      voice.gainC.gain.setTargetAtTime(0.15, t, atk);
-      voice.lp.frequency.setTargetAtTime(2400, t, atk);
-      voice.noiseGain.gain.setTargetAtTime(0.22, t, atk);
-      voice.amp.gain.setTargetAtTime(0.35, t, 0.02);
-      return;
-    }
-
-    // Mix: clean prefers triangle body; slow adds noise; fast adds thin high partials
-    voice.gainA.gain.setTargetAtTime(0.18 + fast * 0.22 + clean * 0.12, t, atk);
-    voice.gainB.gain.setTargetAtTime(0.28 + clean * 0.22 - fast * 0.18, t, atk);
-    voice.gainC.gain.setTargetAtTime(0.02 + fast * 0.16, t, atk);
-
-    voice.lp.frequency.setTargetAtTime(1100 + clean * 1400 + fast * 2200 - slow * 500, t, atk);
-    voice.lp.Q.setTargetAtTime(0.6 + fast * 0.8, t, atk);
-    voice.bp.frequency.setTargetAtTime(freq * (1.6 + clean * 0.6), t, atk);
-    voice.bp.Q.setTargetAtTime(0.9 + clean * 0.5, t, atk);
-    voice.hp.frequency.setTargetAtTime(140 + fast * 900, t, atk);
-    voice.body.frequency.setTargetAtTime(500 + clean * 400, t, atk);
-    voice.body.gain.setTargetAtTime(5 * clean - fast * 3, t, atk);
-
-    voice.noiseBp.frequency.setTargetAtTime(500 + slow * 400 + fast * 2400, t, atk);
-    voice.noiseBp.Q.setTargetAtTime(0.7 + slow * 0.6, t, atk);
-    voice.noiseGain.gain.setTargetAtTime(slow * 0.42 + fast * 0.08, t, atk);
-
-    voice.lfo.frequency.setTargetAtTime(4 + slow * 8, t, 0.05);
-    voice.lfoGain.gain.setTargetAtTime(slow * 0.045, t, 0.05);
-
-    var amp = (0.18 + intensity * 0.55) * (0.75 + clean * 0.25);
-    if (fast > 0.6) amp *= 0.72;
-    voice.amp.gain.setTargetAtTime(amp, t, 0.035);
-  };
-
-  BowSynth.prototype.pluck = function (freq, kind) {
-    this._ensure();
+  BowStarAudio.prototype.stopVoices = function () {
     if (!this.ctx) return;
-    var ctx = this.ctx;
-    var t = ctx.currentTime;
-    var o = ctx.createOscillator();
-    var g = ctx.createGain();
-    var f = ctx.createBiquadFilter();
-    o.type = kind === "bad" ? "square" : "triangle";
-    o.frequency.value = freq || 400;
-    f.type = "lowpass";
-    f.frequency.value = kind === "bad" ? 1200 : 2200;
-    g.gain.setValueAtTime(kind === "bad" ? 0.12 : 0.16, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + (kind === "bad" ? 0.18 : 0.28));
-    o.connect(f);
-    f.connect(g);
-    g.connect(this.master);
-    o.start(t);
-    o.stop(t + 0.3);
+    const t = this.ctx.currentTime;
+    this.voices.forEach((v) => {
+      v.oscGain.gain.cancelScheduledValues(t);
+      v.oscGain.gain.setTargetAtTime(0, t, 0.03);
+      v.nGain.gain.cancelScheduledValues(t);
+      v.nGain.gain.setTargetAtTime(0, t, 0.03);
+      v.lfoGain.gain.setTargetAtTime(0, t, 0.03);
+    });
   };
 
-  BowSynth.prototype.chime = function (ok) {
-    this._ensure();
-    if (!this.ctx) return;
-    var ctx = this.ctx;
-    var t = ctx.currentTime;
-    var freqs = ok ? [523.25, 659.25, 783.99] : [196, 185, 147];
-    for (var i = 0; i < freqs.length; i++) {
-      var o = ctx.createOscillator();
-      var g = ctx.createGain();
-      o.type = "sine";
-      o.frequency.value = freqs[i];
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.1, t + 0.02 + i * 0.07);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7 + i * 0.08);
-      o.connect(g);
-      g.connect(this.master);
-      o.start(t);
-      o.stop(t + 1);
+  BowStarAudio.prototype.cancelAccompaniment = function () {
+    this._accNodes.forEach((n) => {
+      try {
+        if (n.stop) n.stop();
+      } catch (e) {}
+      try {
+        n.disconnect();
+      } catch (e) {}
+    });
+    this._accNodes = [];
+  };
+
+  BowStarAudio.prototype.scheduleScore = function (startTime, Engine) {
+    this.cancelAccompaniment();
+    if (!this.ctx || this.ctx.state === "closed") return;
+    const ctx = this.ctx;
+    const dest = this.accBus;
+    const nodes = this._accNodes;
+
+    function noiseBurst(time, dur, freq, q, gain, hp) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuf;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.frequency.value = freq;
+      f.Q.value = q;
+      const h = ctx.createBiquadFilter();
+      h.type = "highpass";
+      h.frequency.value = hp || 200;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, Math.max(0, time - 0.001));
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), time + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+      src.connect(h);
+      h.connect(f);
+      f.connect(g);
+      g.connect(dest);
+      src.start(time);
+      src.stop(time + dur + 0.02);
+      nodes.push(src, f, h, g);
+    }
+
+    const tickBurst = noiseBurst.bind(this);
+
+    Engine.TICKS.forEach((tick) => {
+      const time = startTime + tick.time;
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = tick.accent ? 880 : 1320;
+      const g = ctx.createGain();
+      const peak = tick.accent ? 0.28 : 0.14;
+      g.gain.setValueAtTime(0.0001, Math.max(0, time - 0.001));
+      g.gain.exponentialRampToValueAtTime(peak, time + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, time + (tick.accent ? 0.12 : 0.07));
+      osc.connect(g);
+      g.connect(dest);
+      osc.start(time);
+      osc.stop(time + 0.16);
+      nodes.push(osc, g);
+      tickBurst(time, tick.accent ? 0.05 : 0.03, tick.accent ? 900 : 1400, 4, tick.accent ? 0.18 : 0.08, 300);
+    });
+
+    Engine.PIANO.forEach((ev) => {
+      const time = startTime + ev.time;
+      ev.freqs.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        osc.type = ev.kind === "cadence" ? "triangle" : idx === 0 && ev.kind === "downbeat" ? "sine" : "triangle";
+        osc.frequency.value = freq;
+        const g = ctx.createGain();
+        const isBass = ev.kind === "downbeat" && idx === 0;
+        const peak = (isBass ? 0.22 : ev.kind === "cadence" ? 0.12 : ev.gain * (idx === 0 ? 0.12 : 0.08));
+        const dur = ev.kind === "cadence" ? 1.1 : ev.kind === "downbeat" ? 0.85 : 0.4;
+        g.gain.setValueAtTime(0.0001, Math.max(0, time - 0.001));
+        g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), time + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+        const lp = ctx.createBiquadFilter();
+        lp.type = "lowpass";
+        lp.frequency.value = isBass ? 900 : 2400;
+        osc.connect(lp);
+        lp.connect(g);
+        g.connect(dest);
+        osc.start(time);
+        osc.stop(time + dur + 0.05);
+        nodes.push(osc, g, lp);
+      });
+    });
+  };
+
+  BowStarAudio.prototype.playClick = function () {
+    if (!this.ctx || !this.noiseBuf) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 1200;
+    bp.Q.value = 2.4;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.35, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(this.violinBus);
+    src.start(t);
+    src.stop(t + 0.1);
+  };
+
+  BowStarAudio.prototype.update = function (engine) {
+    if (!this.ctx || !this.voices.length) return;
+    const t = this.ctx.currentTime;
+    const kind = engine.kind;
+    const freqs = engine.heardFreqs;
+    const sounding = kind !== "silent" && freqs.length > 0;
+    const sp = Math.abs(engine.v);
+
+    for (let i = 0; i < this.voices.length; i++) {
+      const v = this.voices[i];
+      this._ensureNoise(v);
+      const on = sounding && i < freqs.length;
+      if (!on) {
+        ramps(v.oscGain.gain, 0, t, 0.03);
+        ramps(v.nGain.gain, 0, t, 0.03);
+        ramps(v.lfoGain.gain, 0, t, 0.03);
+        continue;
+      }
+      const freq = freqs[i];
+      v.saw.frequency.setTargetAtTime(freq, t, 0.008);
+      v.body.frequency.setTargetAtTime(freq * 0.5, t, 0.008);
+      v.bp.frequency.setTargetAtTime(freq * 1.6, t, 0.01);
+      v.lastFreq = freq;
+
+      let oscLvl = 0.09;
+      let noiseLvl = 0.03;
+      let lp = 2600;
+      let nFreq = 900;
+      let nQ = 1.1;
+      let lfoAmt = 0;
+
+      if (kind === "gii") {
+        oscLvl = 0.055;
+        noiseLvl = 0.12;
+        lp = 1400;
+        nFreq = 420;
+        nQ = 0.8;
+        lfoAmt = 0.03;
+        v.lfo.frequency.setTargetAtTime(7 + sp * 4, t, 0.02);
+      } else if (kind === "suka") {
+        oscLvl = 0.035;
+        noiseLvl = 0.07;
+        lp = 4200;
+        nFreq = 2400;
+        nQ = 0.6;
+        lfoAmt = 0;
+      } else if (kind === "click") {
+        oscLvl = 0.04;
+        noiseLvl = 0.2;
+        lp = 1800;
+        nFreq = 1500;
+      } else if (kind === "wrong") {
+        oscLvl = 0.08;
+        noiseLvl = 0.04;
+        lp = 2400;
+      } else if (kind === "double") {
+        oscLvl = 0.07;
+        noiseLvl = 0.035;
+      } else {
+        // clean, with a little grit near the edges
+        const edgeSlow = sp < 0.5 ? (0.5 - sp) / 0.5 : 0;
+        const edgeFast = sp > 1.6 ? (sp - 1.6) / 1.0 : 0;
+        oscLvl = 0.1;
+        noiseLvl = 0.028 + edgeSlow * 0.05 + edgeFast * 0.03;
+        lp = 2800 - edgeSlow * 800 + edgeFast * 800;
+      }
+
+      if (kind === "clean" || kind === "wrong" || kind === "double") {
+        const mid = 0.7 + Math.min(1.4, sp) * 0.15;
+        oscLvl *= mid;
+      }
+
+      ramps(v.oscGain.gain, oscLvl, t, 0.025);
+      ramps(v.nGain.gain, noiseLvl, t, 0.025);
+      v.lp.frequency.setTargetAtTime(lp, t, 0.02);
+      v.nBp.frequency.setTargetAtTime(nFreq, t, 0.02);
+      v.nBp.Q.setTargetAtTime(nQ, t, 0.02);
+      ramps(v.lfoGain.gain, lfoAmt, t, 0.03);
     }
   };
 
-  global.BowSynth = BowSynth;
-})(window);
+  root.BowStarAudio = BowStarAudio;
+})(typeof globalThis !== "undefined" ? globalThis : this);
