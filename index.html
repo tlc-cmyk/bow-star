@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-HK">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#140c16" />
+  <meta name="description" content="弓弦星——用弓拉《一閃一閃》。喺瀏覽器即玩嘅小提琴弓法小遊戲。" />
+  <title>弓弦星</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23140c16'/%3E%3Cpath d='M32 8l3.5 10.5L46 22l-10.5 3.5L32 36l-3.5-10.5L18 22l10.5-3.5Z' fill='%23f4c45a'/%3E%3Crect x='14' y='40' width='36' height='4' rx='1.5' fill='%23c48a4a'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="stage" aria-label="弓弦星遊戲畫面"></canvas>
+
+    <div id="hud" class="hud hidden" aria-live="polite">
+      <div class="hud-top">
+        <div class="hud-brand">弓弦星</div>
+        <button type="button" id="btn-mute" class="icon-btn" aria-label="靜音">聲</button>
+      </div>
+      <div class="hud-stats">
+        <span id="hud-note">—</span>
+        <span id="hud-score">0 分</span>
+      </div>
+    </div>
+
+    <section id="screen-title" class="panel" aria-labelledby="game-title">
+      <div class="panel-inner">
+        <p class="eyebrow">即玩小遊戲</p>
+        <h1 id="game-title">弓弦星</h1>
+        <p class="subtitle">用弓拉《一閃一閃》</p>
+        <ul class="howto">
+          <li>手指撳住<strong>發亮嘅弦</strong>，左右拖動琴弓。</li>
+          <li>太慢會<strong>沙啞</strong>，太快會<strong>尖聲</strong>。</li>
+          <li>拉錯弦，音符會<strong>跳過</strong>。</li>
+          <li>弓毛有限，拉盡之前要<strong>掉轉方向</strong>——掉轉時機就係技巧。</li>
+        </ul>
+        <button type="button" id="btn-start" class="btn primary">開始</button>
+        <button type="button" id="btn-mute-title" class="btn ghost">聲音：開</button>
+      </div>
+    </section>
+
+    <section id="screen-result" class="panel hidden" aria-labelledby="result-title">
+      <div class="panel-inner">
+        <p class="eyebrow">演奏結束</p>
+        <h2 id="result-title">評級</h2>
+        <p id="result-grade" class="grade">—</p>
+        <p id="result-score" class="result-score">0 / 100</p>
+        <ul id="result-break" class="breakdown"></ul>
+        <button type="button" id="btn-retry" class="btn primary">再拉一次</button>
+        <button type="button" id="btn-home" class="btn ghost">返回標題</button>
+      </div>
+    </section>
+
+    <div id="rotate-hint" class="rotate-hint hidden">請將裝置直立</div>
+  </div>
+
+  <script src="audio.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
