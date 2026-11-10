@@ -8,10 +8,10 @@ html, body {
   height: 100dvh;
   height: 100svh;
   overflow: hidden;
-  background: #140c16;
-  color: #f6ecd8;
-  font-family: "PingFang HK", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei",
-    "Heiti TC", sans-serif;
+  background: #f3eee6;
+  color: #2a241c;
+  font-family: "PingFang HK", "PingFang TC", "Noto Sans TC", "Noto Sans CJK HK",
+    "Microsoft JhengHei", "Heiti TC", sans-serif;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   touch-action: none;
@@ -50,7 +50,7 @@ html, body {
   left: 0;
   right: 0;
   top: 0;
-  padding: calc(8px + env(safe-area-inset-top, 0px)) 14px 0;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 0;
   pointer-events: none;
   z-index: 2;
 }
@@ -59,44 +59,65 @@ html, body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 36px;
+}
+
+.hud-name {
+  font-size: 20px;
+  font-weight: 600;
+  color: #2a241c;
+  letter-spacing: 0.04em;
+}
+
+.hud-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .hud-score-wrap {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
 }
 
 .hud-label {
   font-size: 13px;
-  letter-spacing: 0.18em;
-  color: #f4c45a;
-  font-weight: 700;
+  color: #5c564c;
+  font-weight: 500;
+  letter-spacing: 0.04em;
 }
 
 #hud-score {
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 700;
-  color: #fff6e4;
+  color: #2a241c;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 
 .icon-btn {
   pointer-events: auto;
   appearance: none;
-  border: 1px solid rgba(244, 196, 90, 0.4);
-  background: rgba(20, 12, 22, 0.55);
-  color: #f6ecd8;
+  border: 0;
+  background: transparent;
+  color: #6e685e;
   border-radius: 999px;
-  min-width: 44px;
-  height: 32px;
-  padding: 0 10px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font: inherit;
-  font-size: 13px;
   cursor: pointer;
+  opacity: 0.72;
 }
+
+.icon-btn:active { opacity: 1; }
+.icon-btn .ico-off { display: none; }
+.icon-btn.is-muted .ico-on { display: none; }
+.icon-btn.is-muted .ico-off { display: block; }
 
 .panel {
   position: absolute;
@@ -108,12 +129,13 @@ html, body {
   padding: 0 18px calc(20px + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(
     to top,
-    rgba(12, 7, 14, 0.94) 0%,
-    rgba(12, 7, 14, 0.78) 42%,
-    rgba(12, 7, 14, 0.18) 100%
+    rgba(243, 238, 230, 0.96) 0%,
+    rgba(243, 238, 230, 0.88) 48%,
+    rgba(243, 238, 230, 0.28) 100%
   );
   pointer-events: auto;
   overflow: auto;
+  color: #2a241c;
 }
 
 .panel-inner {
@@ -130,28 +152,27 @@ html, body {
   margin: 0 0 6px;
   letter-spacing: 0.22em;
   font-size: 11px;
-  color: #f4c45a;
+  color: #7a7468;
 }
 
 h1, h2 {
   margin: 0;
-  font-family: "Songti TC", "PMingLiU", "Noto Serif TC", "STSong", serif;
+  font-family: "Songti TC", "PMingLiU", "Noto Serif TC", "Noto Serif CJK HK", "STSong", serif;
   font-weight: 700;
+  color: #2a241c;
 }
 
 h1 {
   font-size: clamp(42px, 14vw, 64px);
   letter-spacing: 0.12em;
-  color: #fff6e4;
-  text-shadow: 0 0 24px rgba(244, 196, 90, 0.35);
 }
 
-h2 { font-size: 22px; letter-spacing: 0.08em; color: #efe4ce; }
+h2 { font-size: 22px; letter-spacing: 0.08em; color: #3a342c; }
 
 .subtitle {
   margin: 8px 0 18px;
   font-size: 16px;
-  color: #e8d4a4;
+  color: #5c564c;
 }
 
 .howto {
@@ -159,16 +180,16 @@ h2 { font-size: 22px; letter-spacing: 0.08em; color: #efe4ce; }
   padding: 14px 16px;
   list-style: none;
   text-align: left;
-  background: rgba(255, 246, 228, 0.06);
-  border: 1px solid rgba(244, 196, 90, 0.22);
+  background: rgba(255, 252, 246, 0.7);
+  border: 1px solid rgba(42, 36, 28, 0.14);
   border-radius: 14px;
   font-size: 14px;
   line-height: 1.65;
-  color: #efe4ce;
+  color: #3a342c;
 }
 
 .howto li + li { margin-top: 6px; }
-.howto strong { color: #f4c45a; font-weight: 650; }
+.howto strong { color: #2a241c; font-weight: 650; }
 
 .btn {
   appearance: none;
@@ -188,15 +209,15 @@ h2 { font-size: 22px; letter-spacing: 0.08em; color: #efe4ce; }
 }
 
 .btn.primary {
-  background: linear-gradient(180deg, #f6d36a 0%, #d7a23a 100%);
-  color: #2a1708;
-  box-shadow: 0 8px 24px rgba(215, 162, 58, 0.28);
+  background: #2a241c;
+  color: #f3eee6;
+  box-shadow: 0 8px 20px rgba(42, 36, 28, 0.16);
 }
 
 .btn.ghost {
   background: transparent;
-  color: #efe4ce;
-  border: 1px solid rgba(246, 236, 216, 0.28);
+  color: #3a342c;
+  border: 1px solid rgba(42, 36, 28, 0.28);
   font-weight: 600;
   letter-spacing: 0.06em;
   min-height: 44px;
@@ -212,37 +233,36 @@ h2 { font-size: 22px; letter-spacing: 0.08em; color: #efe4ce; }
   aspect-ratio: 16 / 7;
   margin: 0 0 12px;
   border-radius: 12px;
-  background: #120a16;
-  border: 1px solid rgba(244, 196, 90, 0.2);
+  background: #f3eee6;
+  border: 1px solid rgba(42, 36, 28, 0.16);
 }
 
 .grade {
   margin: 8px 0 4px;
-  font-family: "Songti TC", "PMingLiU", "Noto Serif TC", serif;
+  font-family: "Songti TC", "PMingLiU", "Noto Serif TC", "Noto Serif CJK HK", serif;
   font-size: clamp(36px, 11vw, 56px);
   letter-spacing: 0.16em;
-  color: #f4c45a;
-  text-shadow: 0 0 28px rgba(244, 196, 90, 0.4);
+  color: #2a241c;
 }
 
 .result-score {
   margin: 0 0 6px;
   font-size: 18px;
-  color: #efe4ce;
+  color: #3a342c;
 }
 
 .result-best {
   margin: 0 0 8px;
   font-size: 14px;
   letter-spacing: 0.12em;
-  color: #f4c45a;
+  color: #6a3e16;
   font-weight: 700;
 }
 
 .result-sub {
   margin: 0 0 16px;
   font-size: 14px;
-  color: #cbb892;
+  color: #7a7468;
   min-height: 1.2em;
 }
 
@@ -255,7 +275,8 @@ h2 { font-size: 22px; letter-spacing: 0.08em; color: #efe4ce; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #140c16;
+  background: #f3eee6;
+  color: #2a241c;
   font-size: 20px;
   letter-spacing: 0.12em;
 }

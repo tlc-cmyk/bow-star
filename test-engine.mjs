@@ -125,4 +125,32 @@ assert.equal(E.lastNoteAt(E.SONG_END - 1e-6).index, 41, "final note is reachable
 const sample = eng3.trace.find((p) => p.kind === "wrong" && p.lanes[0] === 3);
 assert.ok(sample, "should have wrong-string samples");
 
+
+const R = require("./render.js");
+
+// Input mapping contract: pointer Y is always clamped onto the pad.
+// Touching the staff (or anywhere above the pad) is padY=0, i.e. the E string.
+assert.equal(R.mapPadY(80, 400, 600), 0, "staff / above pad clamps to 0 (E)");
+assert.equal(R.mapPadY(400, 400, 600), 0, "pad top is 0 (E)");
+assert.ok(Math.abs(R.mapPadY(475, 400, 600) - 0.125) < 1e-9, "mid of first band");
+assert.equal(R.mapPadY(1000, 400, 600), 1, "below pad clamps to 1 (G)");
+assert.equal(R.mapPadY(2000, 400, 600), 1, "far below pad still 1");
+assert.deepEqual(E.lanesFromY(R.mapPadY(80, 400, 600)), [0], "staff start selects E");
+assert.deepEqual(E.lanesFromY(0), [0], "y=0 is E");
+assert.deepEqual(E.lanesFromY(1), [3], "y=1 is G");
+
+// A stroke that starts in the staff (padY=0) at mid-band speed must select
+// the E lane and must not go silent just because Y is outside the pad.
+{
+  const eng = new E.PlayEngine();
+  const px = E.bowPixelWidth(WIDTH);
+  const deltaX = 0.82 * DT * px;
+  for (let i = 0; i < 18; i++) {
+    eng.step(DT, { pointerDown: true, padY: 0, deltaX, canvasCssWidth: WIDTH });
+  }
+  assert.deepEqual(eng.lanes, [0], "staff-start mid-speed stroke must keep E, got " + JSON.stringify(eng.lanes));
+  assert.notEqual(eng.kind, "silent", "staff-start mid-speed stroke must not go silent, got " + eng.kind);
+  console.log("\n[4] staff-start padY=0 mid-speed: lanes=", eng.lanes, "kind=", eng.kind, "sp=", eng.v.toFixed(3));
+}
+
 console.log("\nAll headless tests passed.");
