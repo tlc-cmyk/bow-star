@@ -1,7 +1,7 @@
 /**
  * 弓弦星 — play engine (pure logic, no DOM / no Web Audio).
  * Original implementation of the timed-performance rules.
- * Melodies are public-domain transcriptions with original accompaniment.
+ * Melodies are original transcriptions with original accompaniment.
  */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) {
@@ -37,6 +37,9 @@
     D: [146.83, 185, 220],
     E: [82.41, 103.83, 123.47],
     G: [98, 123.47, 146.83],
+    F: [87.31, 110, 130.81],
+    Bb: [116.54, 146.83, 174.61],
+    C: [130.81, 164.81, 196],
   };
 
   const WARP = [
@@ -240,6 +243,129 @@
   ];
   const JOY_TUNE = [].concat(JOY_A, JOY_B, JOY_C, JOY_D);
 
+  /*
+   * LWFSS school song 《校歌》 — fresh transcription from the official
+   * published sheet (treble clef, F major / one flat, 4/4, 14 systems,
+   * 28 bars). Durations: q=1, 8=0.5, dq=1.5, h=2. Accidentals: F# and B♮.
+   * Fermatas on the last F of bars 8, 16 and 28 are treated as the
+   * written half note (no extra beat), so tiling and scoring stay even.
+   * Phrase-end rests are absorbed into the previous sung pitch so the
+   * staff tiles without a gap (short end-of-phrase breaths):
+   *   bars 4 and 12: G4(q)+rest(q) → G4(h)
+   *   bar 20:        C5(q)+rest(q) → C5(h)
+   *   bar 24:        C4(dq)+rest(8) → C4(h)
+   * Bars 5, 13, 17, 21 and 25: the first note is encoded as a dotted
+   * quarter. The photocopy often has no visible augmentation dot, but
+   * that is the only 4-beat reading, and the spacing plus the official
+   * recording of “Nourishing” match 1.5+0.5+1+1.
+   *
+   * Violin: lane 0=E, 1=A, 2=D, 3=G; semi = semitones above the open
+   * string. First position, open strings preferred:
+   *   C4=G(5) D4=D(0) E4=D(2) F4=D(3) F#4=D(4) G4=D(5)
+   *   A4=A(0) Bb4=A(1) B♮4=A(2) C5=A(3) D5=A(5) F5=E(1)
+   *
+   * SYS-01  Lung Kong spirit / 龍崗精神
+   *   1: C4(q) C4(q) F4(q) C4(q)
+   *   2: F4(8) E4(8) F4(8) G4(8) A4(h)
+   * SYS-02  Unifying / 世界光照
+   *   3: C5(dq) C5(8) F5(q) C5(q)
+   *   4: A4(8) C5(8) F4(8) A4(8) G4(q) rest(q)
+   * SYS-03  Nourishing / 孕育德行
+   *   5: D4(dq) D4(8) G4(q) D4(q)
+   *   6: G4(8) F#4(8) G4(8) A4(8) A4(h)
+   * SYS-04  Goodness, Truth / 堅守真道
+   *   7: D5(q) D5(q) C5(q) F4(q)
+   *   8: A4(8) G4(8) F4(8) F4(8) F4(h)+fermata
+   * SYS-05  Kindled with Fidelity / 提攜少年
+   *   9: C4(q) C4(q) F4(q) C4(q)
+   *  10: F4(8) E4(8) F4(8) G4(8) A4(dq) A4(8)
+   * SYS-06  Onward march / 教誨不厭
+   *  11: C5(dq) C5(8) F5(q) C5(q)
+   *  12: A4(8) C5(8) F4(8) A4(8) G4(q) rest(q)
+   * SYS-07  Nurtured in Benevolence / 服務天下
+   *  13: D4(dq) D4(8) G4(q) D4(q)
+   *  14: G4(8) F#4(8) G4(8) A4(8) Bb4(dq) C5(8)
+   * SYS-08  Grow together / 敦睦親誼
+   *  15: D5(q) D5(q) C5(q) F4(q)
+   *  16: A4(8) G4(8) F4(8) F4(8) F4(h)+fermata
+   * SYS-09  So, united / 謹守禮義
+   *  17: G4(dq) G4(8) E4(q) C4(q)
+   *  18: A4(q) Bb4(8) A4(8) A4(q) G4(q)
+   * SYS-10  Challenge o'ercome / 不為利引誘
+   *  19: A4(8) D4(8) E4(8) F4(8) F4(q) G4(8) C5(8)
+   *  20: B♮4(8) D5(8) C5(q) C5(q) rest(q)
+   * SYS-11  happily we / 尋求聖賢
+   *  21: C4(dq) C4(8) F4(q) C4(q)
+   *  22: A4(8) F4(8) A4(8) G4(8) Bb4(q) Bb4(q)
+   * SYS-12  Praise to our beloved / 修身向義
+   *  23: D5(q) C5(8) A4(8) A4(q) A4(8) C5(8)
+   *  24: A4(8) F4(8) G4(q) C4(dq) rest(8)
+   * SYS-13  Oft in time / 日復一日
+   *  25: D4(dq) D4(8) G4(q) D4(q)
+   *  26: G4(8) F#4(8) G4(8) A4(8) A4(h)
+   * SYS-14  Let's be worthy / 身體智慧
+   *  27: D5(q) D5(q) C5(q) F4(q)
+   *  28: A4(8) G4(8) F4(8) F4(8) F4(h)+fermata
+   */
+  const SCHOOL_TUNE = [
+    // 1
+    G(5), G(5), D(3), G(5),
+    // 2
+    D(3, 0.5), D(2, 0.5), D(3, 0.5), D(5, 0.5), A(0, 2),
+    // 3
+    A(3, 1.5), A(3, 0.5), E(1), A(3),
+    // 4  G4(q)+rest(q) → G4(h)
+    A(0, 0.5), A(3, 0.5), D(3, 0.5), A(0, 0.5), D(5, 2),
+    // 5
+    D(0, 1.5), D(0, 0.5), D(5), D(0),
+    // 6
+    D(5, 0.5), D(4, 0.5), D(5, 0.5), A(0, 0.5), A(0, 2),
+    // 7
+    A(5), A(5), A(3), D(3),
+    // 8
+    A(0, 0.5), D(5, 0.5), D(3, 0.5), D(3, 0.5), D(3, 2),
+    // 9
+    G(5), G(5), D(3), G(5),
+    // 10
+    D(3, 0.5), D(2, 0.5), D(3, 0.5), D(5, 0.5), A(0, 1.5), A(0, 0.5),
+    // 11
+    A(3, 1.5), A(3, 0.5), E(1), A(3),
+    // 12
+    A(0, 0.5), A(3, 0.5), D(3, 0.5), A(0, 0.5), D(5, 2),
+    // 13
+    D(0, 1.5), D(0, 0.5), D(5), D(0),
+    // 14
+    D(5, 0.5), D(4, 0.5), D(5, 0.5), A(0, 0.5), A(1, 1.5), A(3, 0.5),
+    // 15
+    A(5), A(5), A(3), D(3),
+    // 16
+    A(0, 0.5), D(5, 0.5), D(3, 0.5), D(3, 0.5), D(3, 2),
+    // 17
+    D(5, 1.5), D(5, 0.5), D(2), G(5),
+    // 18
+    A(0), A(1, 0.5), A(0, 0.5), A(0), D(5),
+    // 19
+    A(0, 0.5), D(0, 0.5), D(2, 0.5), D(3, 0.5), D(3), D(5, 0.5), A(3, 0.5),
+    // 20  C5(q)+rest(q) → C5(h)
+    A(2, 0.5), A(5, 0.5), A(3), A(3, 2),
+    // 21
+    G(5, 1.5), G(5, 0.5), D(3), G(5),
+    // 22
+    A(0, 0.5), D(3, 0.5), A(0, 0.5), D(5, 0.5), A(1), A(1),
+    // 23
+    A(5), A(3, 0.5), A(0, 0.5), A(0), A(0, 0.5), A(3, 0.5),
+    // 24  C4(dq)+rest(8) → C4(h)
+    A(0, 0.5), D(3, 0.5), D(5), G(5, 2),
+    // 25
+    D(0, 1.5), D(0, 0.5), D(5), D(0),
+    // 26
+    D(5, 0.5), D(4, 0.5), D(5, 0.5), A(0, 0.5), A(0, 2),
+    // 27
+    A(5), A(5), A(3), D(3),
+    // 28
+    A(0, 0.5), D(5, 0.5), D(3, 0.5), D(3, 0.5), D(3, 2),
+  ];
+
   const SONGS = [
     makeSong({
       id: "twinkle",
@@ -284,6 +410,31 @@
         "D", "D", "D", "A", "G", "D", "A", "D",
       ],
       cadence: [146.83, 293.66, 369.99, 440],
+    }),
+    makeSong({
+      id: "school",
+      title: "校歌",
+      label: "第四關　校歌",
+      key: "F",
+      bpm: 96,
+      tune: SCHOOL_TUNE,
+      chordSeq: [
+        "F", "F", "C", "F",
+        "F", "F", "Bb", "C",
+        "Bb", "C", "C", "F",
+        "F", "F", "C", "F",
+        "F", "F", "C", "F",
+        "F", "F", "Bb", "C",
+        "Bb", "C", "Bb", "C",
+        "F", "F", "C", "F",
+        "C", "C", "Bb", "C",
+        "F", "Bb", "C", "C",
+        "F", "F", "C", "Bb",
+        "Bb", "F", "C", "C",
+        "Bb", "C", "C", "F",
+        "F", "F", "C", "F",
+      ],
+      cadence: [87.31, 174.61, 220, 261.63],
     }),
   ];
 
@@ -747,6 +898,7 @@
     TYPE_SOLO: TYPE_SOLO,
     POP_LABEL: POP_LABEL,
     SONGS: SONGS,
+    CHORD_TONES: CHORD_TONES,
     clamp: clamp,
     A: A,
     E: E,

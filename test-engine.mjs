@@ -180,8 +180,8 @@ assert.deepEqual(E.lanesFromY(1), [3], "y=1 is G");
 }
 
 // --- New songs ---
-assert.equal(E.SONGS.length, 3);
-assert.deepEqual(E.SONGS.map((s) => s.id), ["twinkle", "tigers", "joy"]);
+assert.equal(E.SONGS.length, 4);
+assert.deepEqual(E.SONGS.map((s) => s.id), ["twinkle", "tigers", "joy", "school"]);
 
 const tigers = E.getSong("tigers");
 assertContinuous(tigers);
@@ -230,6 +230,43 @@ const stillT = run(stillBot(), "tigers").result();
 assert.ok(stillT.shown <= 2, "tigers still run should be near 0, got " + stillT.shown);
 const stillJ = run(stillBot(), "joy").result();
 assert.ok(stillJ.shown <= 2, "joy still run should be near 0, got " + stillJ.shown);
+
+
+const school = E.getSong("school");
+assertContinuous(school);
+assert.equal(school.title, "校歌");
+assert.equal(school.label, "第四關　校歌");
+assert.equal(school.key, "F");
+assert.equal(school.bpm, 96);
+assert.ok(school.bpm >= 85 && school.bpm <= 105, "school bpm should be a playable andante");
+assert.equal(school.notes[0].lane, 3, "school song starts on the G string");
+assert.equal(school.notes[0].semi, 5, "school song starts on G(5) / C4");
+assert.ok(Math.abs(heardFreq(school.notes[0]) - 261.63) < 0.5, "start pitch should be C4");
+assert.ok(school.notes.length >= 80, "school song should have dozens of notes, got " + school.notes.length);
+assert.ok(Math.abs(school.total - 112 * school.beat) < 1e-9, "school should be 112 beats (28 bars)");
+assert.ok(school.total > 50 && school.total < 90, "school duration should be around a minute, got " + school.total);
+const lastSchool = school.notes[school.notes.length - 1];
+assert.equal(lastSchool.lane, 2, "school song should end on the D string");
+assert.equal(lastSchool.semi, 3, "school song should end on D(3) / F4");
+assert.ok(Math.abs(heardFreq(lastSchool) - 349.23) < 0.5, "end pitch should be F4");
+const schoolLanes = new Set(school.notes.map((n) => n.lane));
+assert.ok(schoolLanes.has(0) && schoolLanes.has(1) && schoolLanes.has(2) && schoolLanes.has(3), "school song uses all four strings");
+assert.equal(E.nextSongId("joy"), "school");
+assert.equal(E.nextSongId("school"), null);
+assert.ok(school.chordSeq.length === 56, "school accompaniment should have 56 two-beat slots");
+assert.ok(school.chordSeq.every((c) => E.CHORD_TONES[c]), "every school chord must be defined");
+assert.equal(school.piano.filter((e) => e.kind === "downbeat").length, 56);
+
+const engS = run(perfectBot(), "school");
+const rS = engS.result();
+console.log("\n[7] perfect bot — 校歌");
+console.log("  shown:", rS.shown, " grade:", rS.grade, " type:", rS.type, " ends:", rS.endCount, " notes:", school.notes.length);
+assert.ok(engS.finished, "school should finish");
+assert.ok(rS.shown >= 90, "school perfect bot should be 名演/神技, got " + rS.shown);
+assert.ok(rS.grade === "神技" || rS.grade === "名演", "school grade should be 神技 or 名演, got " + rS.grade);
+
+const stillS = run(stillBot(), "school").result();
+assert.ok(stillS.shown <= 2, "school still run should be near 0, got " + stillS.shown);
 
 E.setSong("twinkle");
 assert.equal(E.NOTES.length, 42, "setSong should restore twinkle globals");
