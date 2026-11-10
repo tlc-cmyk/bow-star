@@ -49,7 +49,16 @@
     return clamp((pointerY - padTop) / padH, 0, 1);
   }
 
-  function layout(cssW, cssH, safeTop) {
+  function songOf(state) {
+    if (state && state.engine && state.engine.song) return state.engine.song;
+    if (state && state.song) return state.song;
+    if (state && state.notes && state.lead != null) return state;
+    return E.getCurrentSong ? E.getCurrentSong() : null;
+  }
+
+  function layout(cssW, cssH, safeTop, beat) {
+    const song = E.getCurrentSong ? E.getCurrentSong() : null;
+    const b = beat || (song && song.beat) || E.BEAT;
     const staffH = Math.max(120, cssH * 0.4);
     const padTop = staffH;
     const safe = safeTop || 0;
@@ -63,7 +72,7 @@
       padTop: padTop,
       padH: cssH - padTop,
       playX: cssW * 0.24,
-      pxPerSec: (cssW * 0.62) / (8 * E.BEAT),
+      pxPerSec: (cssW * 0.62) / (8 * b),
     };
   }
 
@@ -609,6 +618,10 @@
     const rows = staffRows(L);
     const playing = !!state.playing;
     const trace = state.trace || [];
+    const song = songOf(state);
+    const notes = (song && song.notes) || E.NOTES;
+    const lead = song && song.lead != null ? song.lead : E.LEAD;
+    const beat = song && song.beat != null ? song.beat : E.BEAT;
 
     const gutter = 34;
     // Lane bands
@@ -625,8 +638,8 @@
     ctx.restore();
 
     // Notes (keep a left gutter so lane labels stay readable)
-    for (let i = 0; i < E.NOTES.length; i++) {
-      const n = E.NOTES[i];
+    for (let i = 0; i < notes.length; i++) {
+      const n = notes[i];
       const x0 = xAt(L, n.start, now);
       const x1 = xAt(L, n.end, now);
       if (x1 < gutter || x0 > L.w + 24) continue;
@@ -679,13 +692,13 @@
     ctx.arc(L.playX, knobY, 6.2, 0, Math.PI * 2);
     ctx.fill();
 
-    if (playing && now < E.LEAD) {
-      const beat = Math.min(3, Math.floor(now / E.BEAT));
+    if (playing && now < lead) {
+      const beatNum = Math.min(3, Math.floor(now / beat));
       ctx.fillStyle = C.inkSoft;
       ctx.font = "bold 28px 'Songti TC', 'Noto Serif CJK HK', serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(4 - beat), L.playX + 38, rows.top + rows.h * 2);
+      ctx.fillText(String(4 - beatNum), L.playX + 38, rows.top + rows.h * 2);
     }
   }
 
@@ -834,7 +847,8 @@
   }
 
   function paint(ctx, state) {
-    const L = layout(state.cssW, state.cssH, state.safeTop || 0);
+    const song = songOf(state);
+    const L = layout(state.cssW, state.cssH, state.safeTop || 0, song && song.beat);
     drawPaper(ctx, L.w, L.h);
     drawStaff(ctx, L, state);
     const active = (state.engine && state.engine.lanes) || [];
@@ -851,10 +865,15 @@
     ctx.fillStyle = C.paper0;
     ctx.fillRect(0, 0, w, h);
 
+    const song = songOf(result);
+    const notes = (song && song.notes) || E.NOTES;
+    const lead = song && song.lead != null ? song.lead : E.LEAD;
+    const songEnd = song && song.songEnd != null ? song.songEnd : E.SONG_END;
+
     const top = 22;
     const rowH = (h - 36) / 4;
     const playX = 36;
-    const span = E.SONG_END - E.LEAD;
+    const span = songEnd - lead;
     const px = (w - 52) / span;
 
     ctx.font = "11px 'PingFang HK', 'Noto Sans CJK HK', sans-serif";
@@ -868,11 +887,11 @@
     }
 
     function X(t) {
-      return playX + (t - E.LEAD) * px;
+      return playX + (t - lead) * px;
     }
 
-    for (let i = 0; i < E.NOTES.length; i++) {
-      const n = E.NOTES[i];
+    for (let i = 0; i < notes.length; i++) {
+      const n = notes[i];
       const x0 = X(n.start);
       const x1 = X(n.end);
       const yy = top + rowH * n.lane + 4;
@@ -887,7 +906,7 @@
     for (let i = 1; i < trace.length; i++) {
       const a = trace[i - 1];
       const b = trace[i];
-      if (a.t < E.LEAD - 0.05 || a.t > E.SONG_END + 0.05) continue;
+      if (a.t < lead - 0.05 || a.t > songEnd + 0.05) continue;
       if (a.kind === "silent") continue;
       const x0 = X(a.t);
       const x1 = X(b.t);
@@ -929,8 +948,8 @@
     ctx.strokeStyle = "rgba(42,36,28,0.25)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(X(E.SONG_END), top);
-    ctx.lineTo(X(E.SONG_END), top + rowH * 4);
+    ctx.moveTo(X(songEnd), top);
+    ctx.lineTo(X(songEnd), top + rowH * 4);
     ctx.stroke();
   }
 

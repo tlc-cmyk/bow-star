@@ -1,6 +1,7 @@
 /**
  * 弓弦星 — play engine (pure logic, no DOM / no Web Audio).
  * Original implementation of the timed-performance rules.
+ * Melodies are public-domain transcriptions with original accompaniment.
  */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) {
@@ -11,9 +12,6 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  const BPM = 104;
-  const BEAT = 60 / BPM;
-  const LEAD = 4 * BEAT;
   const TAIL = 0.35;
 
   const V_STOP = 0.05;
@@ -38,13 +36,8 @@
     A: [110, 138.59, 164.81],
     D: [146.83, 185, 220],
     E: [82.41, 103.83, 123.47],
+    G: [98, 123.47, 146.83],
   };
-  const CHORD_SEQ = [
-    "A", "A", "D", "A", "D", "A", "E", "A",
-    "A", "D", "A", "E", "A", "D", "A", "E",
-    "A", "A", "D", "A", "D", "A", "E", "A",
-  ];
-  const CADENCE = [110, 220, 277.18, 329.63];
 
   const WARP = [
     [0, 0],
@@ -110,24 +103,25 @@
   function E(s, b) {
     return [0, s, b == null ? 1 : b];
   }
-
-  const PHRASE1 = [A(0), A(0), E(0), E(0), E(2), E(2), E(0, 2)];
-  const PHRASE2 = [A(5), A(5), A(4), A(4), A(2), A(2), A(0, 2)];
-  const PHRASE3 = [E(0), E(0), A(5), A(5), A(4), A(4), A(2, 2)];
-  const TUNE = [].concat(PHRASE1, PHRASE2, PHRASE3, PHRASE3, PHRASE1, PHRASE2);
+  function D(s, b) {
+    return [2, s, b == null ? 1 : b];
+  }
+  function G(s, b) {
+    return [3, s, b == null ? 1 : b];
+  }
 
   function clamp(x, a, b) {
     return x < a ? a : x > b ? b : x;
   }
 
-  function buildNotes() {
+  function buildNotes(tune, lead, beat) {
     const notes = [];
-    let t = LEAD;
-    for (let i = 0; i < TUNE.length; i++) {
-      const lane = TUNE[i][0];
-      const semi = TUNE[i][1];
-      const beats = TUNE[i][2];
-      const dur = beats * BEAT;
+    let t = lead;
+    for (let i = 0; i < tune.length; i++) {
+      const lane = tune[i][0];
+      const semi = tune[i][1];
+      const beats = tune[i][2];
+      const dur = beats * beat;
       notes.push({
         index: i,
         lane: lane,
@@ -142,12 +136,12 @@
     return notes;
   }
 
-  function buildPianoEvents(songEnd) {
+  function buildPianoEvents(chordSeq, cadence, lead, beat, songEnd) {
     const events = [];
-    for (let i = 0; i < CHORD_SEQ.length; i++) {
-      const name = CHORD_SEQ[i];
+    for (let i = 0; i < chordSeq.length; i++) {
+      const name = chordSeq[i];
       const tones = CHORD_TONES[name];
-      const t0 = LEAD + i * 2 * BEAT;
+      const t0 = lead + i * 2 * beat;
       events.push({
         time: t0,
         kind: "downbeat",
@@ -155,7 +149,7 @@
         gain: 1,
       });
       events.push({
-        time: t0 + BEAT,
+        time: t0 + beat,
         kind: "upbeat",
         freqs: [tones[1] * 4, tones[2] * 4],
         gain: 0.42,
@@ -164,35 +158,190 @@
     events.push({
       time: songEnd,
       kind: "cadence",
-      freqs: CADENCE.slice(),
+      freqs: cadence.slice(),
       gain: 0.85,
     });
     return events;
   }
 
-  function buildTicks() {
+  function buildTicks(beat) {
     const ticks = [];
     for (let i = 0; i < 4; i++) {
-      ticks.push({ time: i * BEAT, accent: i === 0 });
+      ticks.push({ time: i * beat, accent: i === 0 });
     }
     return ticks;
   }
 
-  const NOTES = buildNotes();
-  const SONG_END = NOTES[NOTES.length - 1].end;
-  const RESULT_AT = SONG_END + TAIL;
-  const TOTAL = SONG_END - LEAD;
-  const PIANO = buildPianoEvents(SONG_END);
-  const TICKS = buildTicks();
+  function makeSong(spec) {
+    const bpm = spec.bpm;
+    const beat = 60 / bpm;
+    const lead = 4 * beat;
+    const notes = buildNotes(spec.tune, lead, beat);
+    const songEnd = notes[notes.length - 1].end;
+    const total = songEnd - lead;
+    const resultAt = songEnd + TAIL;
+    return {
+      id: spec.id,
+      title: spec.title,
+      label: spec.label,
+      key: spec.key,
+      bpm: bpm,
+      beat: beat,
+      lead: lead,
+      tune: spec.tune,
+      notes: notes,
+      songEnd: songEnd,
+      total: total,
+      resultAt: resultAt,
+      piano: buildPianoEvents(spec.chordSeq, spec.cadence, lead, beat, songEnd),
+      ticks: buildTicks(beat),
+      chordSeq: spec.chordSeq,
+      cadence: spec.cadence,
+    };
+  }
 
-  function noteAt(t) {
-    if (t < LEAD || t >= SONG_END) return null;
-    // Notes tile [LEAD, SONG_END) with no gaps.
+  const PHRASE1 = [A(0), A(0), E(0), E(0), E(2), E(2), E(0, 2)];
+  const PHRASE2 = [A(5), A(5), A(4), A(4), A(2), A(2), A(0, 2)];
+  const PHRASE3 = [E(0), E(0), A(5), A(5), A(4), A(4), A(2, 2)];
+  const TWINKLE_TUNE = [].concat(PHRASE1, PHRASE2, PHRASE3, PHRASE3, PHRASE1, PHRASE2);
+
+  const TIGER_PHRASE_A = [A(0), A(2), A(4), A(0), A(0), A(2), A(4), A(0)];
+  const TIGER_PHRASE_B = [A(4), A(5), E(0, 2), A(4), A(5), E(0, 2)];
+  const TIGER_PHRASE_C = [
+    E(0, 0.5), E(2, 0.5), E(0, 0.5), A(5, 0.5), A(4), A(0),
+    E(0, 0.5), E(2, 0.5), E(0, 0.5), A(5, 0.5), A(4), A(0),
+  ];
+  const TIGER_PHRASE_D = [A(0), E(0), A(0, 2), A(0), E(0), A(0, 2)];
+  const TIGER_TUNE = [].concat(TIGER_PHRASE_A, TIGER_PHRASE_B, TIGER_PHRASE_C, TIGER_PHRASE_D);
+
+  const JOY_A = [
+    D(4), D(4), D(5), A(0),
+    A(0), D(5), D(4), D(2),
+    D(0), D(0), D(2), D(4),
+    D(4), D(2), D(2, 2),
+  ];
+  const JOY_B = [
+    D(4), D(4), D(5), A(0),
+    A(0), D(5), D(4), D(2),
+    D(0), D(0), D(2), D(4),
+    D(2), D(0), D(0, 2),
+  ];
+  const JOY_C = [
+    D(2), D(2), D(4), D(0),
+    D(2), D(4), D(5), D(4),
+    D(2), D(4), D(5), D(4),
+    D(2), D(0), D(2, 2),
+  ];
+  const JOY_D = [
+    D(4), D(4), D(5), A(0),
+    A(0), D(5), D(4), D(2),
+    D(0), D(0), D(2), D(4),
+    D(2), D(0), D(0, 2),
+  ];
+  const JOY_TUNE = [].concat(JOY_A, JOY_B, JOY_C, JOY_D);
+
+  const SONGS = [
+    makeSong({
+      id: "twinkle",
+      title: "一閃一閃",
+      label: "第一關　一閃一閃",
+      key: "A",
+      bpm: 104,
+      tune: TWINKLE_TUNE,
+      chordSeq: [
+        "A", "A", "D", "A", "D", "A", "E", "A",
+        "A", "D", "A", "E", "A", "D", "A", "E",
+        "A", "A", "D", "A", "D", "A", "E", "A",
+      ],
+      cadence: [110, 220, 277.18, 329.63],
+    }),
+    makeSong({
+      id: "tigers",
+      title: "兩隻老虎",
+      label: "第二關　兩隻老虎",
+      key: "A",
+      bpm: 108,
+      tune: TIGER_TUNE,
+      chordSeq: [
+        "A", "A", "A", "A",
+        "A", "A", "A", "E",
+        "E", "A", "E", "A",
+        "A", "E", "A", "A",
+      ],
+      cadence: [110, 220, 277.18, 329.63],
+    }),
+    makeSong({
+      id: "joy",
+      title: "歡樂頌",
+      label: "第三關　歡樂頌",
+      key: "D",
+      bpm: 100,
+      tune: JOY_TUNE,
+      chordSeq: [
+        "D", "D", "D", "A", "D", "D", "A", "A",
+        "D", "D", "D", "A", "D", "D", "D", "D",
+        "A", "A", "A", "D", "A", "A", "A", "A",
+        "D", "D", "D", "A", "G", "D", "A", "D",
+      ],
+      cadence: [146.83, 293.66, 369.99, 440],
+    }),
+  ];
+
+  const SONGS_BY_ID = {};
+  for (let i = 0; i < SONGS.length; i++) SONGS_BY_ID[SONGS[i].id] = SONGS[i];
+
+  let currentSong = SONGS[0];
+
+  function getSong(id) {
+    if (id && SONGS_BY_ID[id]) return SONGS_BY_ID[id];
+    const n = Number(id);
+    if (n >= 1 && n <= SONGS.length) return SONGS[n - 1];
+    return SONGS[0];
+  }
+
+  function getCurrentSong() {
+    return currentSong;
+  }
+
+  function nextSongId(id) {
+    const cur = getSong(id);
+    const i = SONGS.indexOf(cur);
+    if (i >= 0 && i < SONGS.length - 1) return SONGS[i + 1].id;
+    return null;
+  }
+
+  function syncExports(song) {
+    currentSong = song;
+    api.BPM = song.bpm;
+    api.BEAT = song.beat;
+    api.LEAD = song.lead;
+    api.TOTAL = song.total;
+    api.SONG_END = song.songEnd;
+    api.RESULT_AT = song.resultAt;
+    api.NOTES = song.notes;
+    api.TUNE = song.tune;
+    api.PIANO = song.piano;
+    api.TICKS = song.ticks;
+    return song;
+  }
+
+  function setSong(id) {
+    return syncExports(getSong(id));
+  }
+
+  function resolveSong(song) {
+    return song || currentSong;
+  }
+
+  function noteAt(t, song) {
+    song = resolveSong(song);
+    const notes = song.notes;
+    if (t < song.lead || t >= song.songEnd) return null;
     let lo = 0;
-    let hi = NOTES.length - 1;
+    let hi = notes.length - 1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      const n = NOTES[mid];
+      const n = notes[mid];
       if (t < n.start) hi = mid - 1;
       else if (t >= n.end) lo = mid + 1;
       else return n;
@@ -200,29 +349,35 @@
     return null;
   }
 
-  function nearAnyNoteStart(t, window) {
-    for (let i = 0; i < NOTES.length; i++) {
-      const d = t - NOTES[i].start;
-      if (d >= -window && d <= window) return NOTES[i];
+  function nearAnyNoteStart(t, window, song) {
+    song = resolveSong(song);
+    const notes = song.notes;
+    for (let i = 0; i < notes.length; i++) {
+      const d = t - notes[i].start;
+      if (d >= -window && d <= window) return notes[i];
     }
     return null;
   }
 
-  function graceNote(t) {
-    for (let i = 0; i < NOTES.length; i++) {
-      const d = t - NOTES[i].start;
-      if (d >= -GRACE_PRE && d <= GRACE_POST) return NOTES[i];
+  function graceNote(t, song) {
+    song = resolveSong(song);
+    const notes = song.notes;
+    for (let i = 0; i < notes.length; i++) {
+      const d = t - notes[i].start;
+      if (d >= -GRACE_PRE && d <= GRACE_POST) return notes[i];
     }
     return null;
   }
 
-  function lastNoteAt(t) {
-    if (t < LEAD) return null;
-    if (t >= SONG_END) return NOTES[NOTES.length - 1];
-    const n = noteAt(t);
+  function lastNoteAt(t, song) {
+    song = resolveSong(song);
+    const notes = song.notes;
+    if (t < song.lead) return null;
+    if (t >= song.songEnd) return notes[notes.length - 1];
+    const n = noteAt(t, song);
     if (n) return n;
-    for (let i = NOTES.length - 1; i >= 0; i--) {
-      if (NOTES[i].end <= t) return NOTES[i];
+    for (let i = notes.length - 1; i >= 0; i--) {
+      if (notes[i].end <= t) return notes[i];
     }
     return null;
   }
@@ -274,8 +429,8 @@
     return "噪音";
   }
 
-  function typeFor(shown, buckets) {
-    if (shown >= 97) return "一閃一閃";
+  function typeFor(shown, buckets, title) {
+    if (shown >= 97) return title || "一閃一閃";
     if (shown >= 90) return "乾淨";
     const ranked = FAULT_ORDER.slice().sort(function (a, b) {
       const dt = (buckets[b] || 0) - (buckets[a] || 0);
@@ -293,9 +448,9 @@
     return TYPE_COMBO[key] || TYPE_SOLO[a] + "・" + TYPE_SOLO[b];
   }
 
-  function headlineFor(shown, buckets) {
+  function headlineFor(shown, buckets, title) {
     if (shown >= 90) return gradeFor(shown);
-    return typeFor(shown, buckets);
+    return typeFor(shown, buckets, title);
   }
 
   function bowPixelWidth(canvasCssWidth) {
@@ -314,11 +469,20 @@
     };
   }
 
-  function PlayEngine() {
+  function PlayEngine(songId) {
+    this.song = getSong(songId || (currentSong && currentSong.id) || "twinkle");
     this.reset();
   }
 
+  PlayEngine.prototype.setSong = function (songId) {
+    this.song = getSong(songId);
+    setSong(this.song.id);
+    this.reset();
+    return this;
+  };
+
   PlayEngine.prototype.reset = function () {
+    if (!this.song) this.song = currentSong || getSong("twinkle");
     this.time = 0;
     this.s = 0.5;
     this.v = 0;
@@ -385,7 +549,8 @@
     if (dt > 0.08) dt = 0.08;
     this.time += dt;
     const t = this.time;
-    if (t >= RESULT_AT) this.finished = true;
+    const song = this.song;
+    if (t >= song.resultAt) this.finished = true;
 
     input = input || {};
     const pointerDown = !!input.pointerDown;
@@ -408,7 +573,6 @@
     const prevS = this.s;
     let ranOut = false;
     let next = clamp(prevS + ds, 0, 1);
-    // Only "bow ran out" if we were already at an end and still pushing that way.
     if ((prevS <= 0 && ds < 0) || (prevS >= 1 && ds > 0)) {
       ranOut = true;
       next = prevS <= 0 ? 0 : 1;
@@ -428,10 +592,10 @@
     const newDir = sp > V_STOP ? (this.v < 0 ? -1 : 1) : 0;
     let justClicked = false;
     if (this.dir !== 0 && newDir !== 0 && newDir !== this.dir) {
-      const near = nearAnyNoteStart(t, TURN_WINDOW);
+      const near = nearAnyNoteStart(t, TURN_WINDOW, song);
       if (near) {
         // clean bow change
-      } else if (noteAt(t)) {
+      } else if (noteAt(t, song)) {
         this.clickUntil = t + CLICK_DUR;
         justClicked = true;
       }
@@ -444,9 +608,9 @@
     }
     this.lanes = lanes;
 
-    const cur = noteAt(t);
+    const cur = noteAt(t, song);
     this.currentNote = cur;
-    const last = lastNoteAt(t);
+    const last = lastNoteAt(t, song);
     this.semi = cur ? cur.semi : last ? last.semi : 0;
 
     const kind = this._classify(t, pointerDown, ranOut, sp, lanes, cur);
@@ -454,7 +618,7 @@
 
     let q = 0;
     if (kind === "clean") {
-      const g = graceNote(t);
+      const g = graceNote(t, song);
       if (g && sp < V_LO) {
         q = 1;
       } else if (sp >= V_LO && sp <= V_HI) {
@@ -507,14 +671,14 @@
   };
 
   PlayEngine.prototype._classify = function (t, pointerDown, ranOut, sp, lanes, cur) {
+    const song = this.song;
     const inClick = t < this.clickUntil;
-    const g = graceNote(t);
+    const g = graceNote(t, song);
     const stringOk =
       lanes.length === 0 ||
       (lanes.length === 1 && cur && lanes[0] === cur.lane) ||
       (lanes.length === 1 && !cur && g && lanes[0] === g.lane);
 
-    // Grace: slow (or briefly still) at a note boundary, not on a wrong string.
     const canGrace =
       pointerDown &&
       !ranOut &&
@@ -530,7 +694,7 @@
     if (lanes.length === 0) return "silent";
     if (lanes.length >= 2) return "double";
 
-    const required = cur ? cur.lane : (lastNoteAt(t) ? lastNoteAt(t).lane : lanes[0]);
+    const required = cur ? cur.lane : (lastNoteAt(t, song) ? lastNoteAt(t, song).lane : lanes[0]);
     if (cur && lanes[0] !== required) return "wrong";
 
     if (sp < V_GII) return "gii";
@@ -539,43 +703,40 @@
   };
 
   PlayEngine.prototype.liveShown = function () {
-    if (this.time < LEAD || this.noteElapsed <= 1e-9) return null;
+    if (this.time < this.song.lead || this.noteElapsed <= 1e-9) return null;
     const p = (this.sum / this.noteElapsed) * 100;
     return shownScore(p);
   };
 
   PlayEngine.prototype.finalShown = function () {
-    const p = (this.sum / TOTAL) * 100;
+    const p = (this.sum / this.song.total) * 100;
     return shownScore(p);
   };
 
   PlayEngine.prototype.result = function () {
     const shown = this.finalShown();
+    const title = this.song.title;
     const grade = gradeFor(shown);
-    const type = typeFor(shown, this.buckets);
-    const headline = headlineFor(shown, this.buckets);
+    const type = typeFor(shown, this.buckets, title);
+    const headline = headlineFor(shown, this.buckets, title);
     return {
       shown: shown,
-      raw: (this.sum / TOTAL) * 100,
+      raw: (this.sum / this.song.total) * 100,
       grade: grade,
       type: type,
       headline: headline,
       buckets: Object.assign({}, this.buckets),
       sum: this.sum,
-      total: TOTAL,
+      total: this.song.total,
       endCount: this.endCount,
       trace: this.trace,
+      song: this.song,
+      title: title,
     };
   };
 
-  return {
-    BPM: BPM,
-    BEAT: BEAT,
-    LEAD: LEAD,
+  const api = {
     TAIL: TAIL,
-    TOTAL: TOTAL,
-    SONG_END: SONG_END,
-    RESULT_AT: RESULT_AT,
     V_STOP: V_STOP,
     V_GII: V_GII,
     V_LO: V_LO,
@@ -583,15 +744,14 @@
     V_SUKA: V_SUKA,
     LANE_NAMES: LANE_NAMES,
     OPEN_FREQ: OPEN_FREQ,
-    NOTES: NOTES,
-    TUNE: TUNE,
-    PIANO: PIANO,
-    TICKS: TICKS,
     TYPE_SOLO: TYPE_SOLO,
     POP_LABEL: POP_LABEL,
+    SONGS: SONGS,
     clamp: clamp,
     A: A,
     E: E,
+    D: D,
+    G: G,
     lanesFromY: lanesFromY,
     warpScore: warpScore,
     shownScore: shownScore,
@@ -600,7 +760,15 @@
     headlineFor: headlineFor,
     noteAt: noteAt,
     lastNoteAt: lastNoteAt,
+    graceNote: graceNote,
     bowPixelWidth: bowPixelWidth,
+    getSong: getSong,
+    setSong: setSong,
+    getCurrentSong: getCurrentSong,
+    nextSongId: nextSongId,
     PlayEngine: PlayEngine,
   };
+
+  setSong("twinkle");
+  return api;
 });

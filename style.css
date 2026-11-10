@@ -62,11 +62,26 @@ html, body {
   min-height: 36px;
 }
 
+.hud-name-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
 .hud-name {
   font-size: 20px;
   font-weight: 600;
   color: #2a241c;
   letter-spacing: 0.04em;
+}
+
+.hud-song {
+  font-size: 11px;
+  color: #7a7468;
+  letter-spacing: 0.1em;
+  font-weight: 500;
+  margin-top: -1px;
 }
 
 .hud-right {
@@ -176,7 +191,7 @@ h2 { font-size: 22px; letter-spacing: 0.08em; color: #3a342c; }
 }
 
 .howto {
-  margin: 0 0 22px;
+  margin: 0 0 16px;
   padding: 14px 16px;
   list-style: none;
   text-align: left;
@@ -279,4 +294,21 @@ h2 { font-size: 22px; letter-spacing: 0.08em; color: #3a342c; }
   color: #2a241c;
   font-size: 20px;
   letter-spacing: 0.12em;
+}
+
+.level-pick {
+  margin: 0 0 8px;
+}
+
+.level-pick .btn.primary {
+  min-height: 48px;
+  font-size: 16px;
+  letter-spacing: 0.1em;
+}
+
+.result-song {
+  margin: 0 0 2px;
+  font-size: 14px;
+  color: #5c564c;
+  letter-spacing: 0.1em;
 }

@@ -6,9 +6,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#f3eee6" />
-  <meta name="description" content="弓弦星——用弓拉《一閃一閃》。跟拍子拉小提琴，左手自動按音。" />
+  <meta name="description" content="弓弦星——用弓拉《一閃一閃》、《兩隻老虎》同《歡樂頌》。跟拍子拉小提琴，左手自動按音。" />
   <title>弓弦星</title>
-  <link rel="stylesheet" href="style.css?v=20261110d" />
+  <link rel="stylesheet" href="style.css?v=20261110e" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23f3eee6'/%3E%3Cellipse cx='32' cy='38' rx='16' ry='18' fill='%23c17a38' stroke='%232a241c' stroke-width='2'/%3E%3Crect x='28' y='8' width='8' height='24' rx='2' fill='%2316110e'/%3E%3C/svg%3E" />
 </head>
 <body>
@@ -18,7 +18,10 @@
 
     <div id="hud" class="hud hidden" aria-live="polite">
       <div class="hud-top">
-        <div class="hud-name">弓弦星</div>
+        <div class="hud-name-wrap">
+          <div class="hud-name">弓弦星</div>
+          <div id="hud-song" class="hud-song"></div>
+        </div>
         <div class="hud-right">
           <div class="hud-score-wrap">
             <span class="hud-label">演奏分</span>
@@ -42,14 +45,18 @@
       <div class="panel-inner">
         <p class="eyebrow">即玩小遊戲</p>
         <h1 id="game-title">弓弦星</h1>
-        <p class="subtitle">用弓拉《一閃一閃》</p>
+        <p class="subtitle">跟拍子拉小提琴</p>
         <ul class="howto">
           <li><strong>左右拉弓</strong>、<strong>上下握弦</strong>；左手自動按音。</li>
-          <li>跟拍子拉《一閃一閃》。</li>
-          <li>太慢會沙、太快會飄、錯弦音會跳。</li>
+          <li>有三關：《一閃一閃》、《兩隻老虎》同《歡樂頌》。</li>
+          <li>太慢或太快都會走音、錯弦音會跳。</li>
           <li>弓毛有限，最好喺音符開頭掉轉。</li>
         </ul>
-        <button type="button" id="btn-start" class="btn primary">開始</button>
+        <div class="level-pick" role="group" aria-label="選擇關卡">
+          <button type="button" class="btn primary" data-song="twinkle">第一關　一閃一閃</button>
+          <button type="button" class="btn primary" data-song="tigers">第二關　兩隻老虎</button>
+          <button type="button" class="btn primary" data-song="joy">第三關　歡樂頌</button>
+        </div>
         <button type="button" id="btn-mute-title" class="btn ghost">聲音：開</button>
       </div>
     </section>
@@ -59,10 +66,12 @@
         <p class="eyebrow">演奏痕跡</p>
         <canvas id="trace-card" width="640" height="280" aria-label="呢次演奏嘅痕跡"></canvas>
         <h2 id="result-title">評級</h2>
+        <p id="result-song" class="result-song"></p>
         <p id="result-headline" class="grade">—</p>
         <p id="result-score" class="result-score">演奏分 —</p>
         <p id="result-best" class="result-best hidden">自我最佳更新</p>
         <p id="result-sub" class="result-sub"></p>
+        <button type="button" id="btn-next" class="btn primary hidden">下一關</button>
         <button type="button" id="btn-retry" class="btn primary">再拉一次</button>
         <button type="button" id="btn-home" class="btn ghost">返回標題</button>
         <button type="button" id="btn-mute-result" class="btn ghost">聲音：開</button>
@@ -72,9 +81,9 @@
     <div id="rotate-hint" class="rotate-hint hidden">請將裝置直立</div>
   </div>
 
-  <script src="engine.js?v=20261110d"></script>
-  <script src="render.js?v=20261110d"></script>
-  <script src="audio.js?v=20261110d"></script>
-  <script src="game.js?v=20261110d"></script>
+  <script src="engine.js?v=20261110e"></script>
+  <script src="render.js?v=20261110e"></script>
+  <script src="audio.js?v=20261110e"></script>
+  <script src="game.js?v=20261110e"></script>
 </body>
 </html>

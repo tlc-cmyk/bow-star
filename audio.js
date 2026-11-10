@@ -233,8 +233,10 @@
     }
 
     const tickBurst = noiseBurst.bind(this);
+    const ticks = Engine.TICKS || Engine.ticks;
+    const piano = Engine.PIANO || Engine.piano;
 
-    Engine.TICKS.forEach((tick) => {
+    ticks.forEach((tick) => {
       const time = startTime + tick.time;
       const osc = ctx.createOscillator();
       osc.type = "sine";
@@ -252,7 +254,7 @@
       tickBurst(time, tick.accent ? 0.05 : 0.03, tick.accent ? 900 : 1400, 4, tick.accent ? 0.18 : 0.08, 300);
     });
 
-    Engine.PIANO.forEach((ev) => {
+    piano.forEach((ev) => {
       const time = startTime + ev.time;
       ev.freqs.forEach((freq, idx) => {
         const osc = ctx.createOscillator();

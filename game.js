@@ -24,15 +24,42 @@
     mute: document.getElementById("btn-mute"),
     muteTitle: document.getElementById("btn-mute-title"),
     muteResult: document.getElementById("btn-mute-result"),
-    start: document.getElementById("btn-start"),
     retry: document.getElementById("btn-retry"),
+    next: document.getElementById("btn-next"),
     home: document.getElementById("btn-home"),
     safe: document.getElementById("safe-probe"),
+    hudSong: document.getElementById("hud-song"),
+    resultSong: document.getElementById("result-song"),
+    levelPick: document.querySelector(".level-pick"),
   };
 
   const STORE_MUTE = "bowstar-v2-mute";
-  const STORE_BEST = "bowstar-v2-best";
+  const STORE_BEST_LEGACY = "bowstar-v2-best";
   const STORE_HINT = "bowstar-v2-hint";
+
+  function bestKey(songId) {
+    return "bowstar-v2-best-" + songId;
+  }
+
+  function migrateBest() {
+    try {
+      const old = localStorage.getItem(STORE_BEST_LEGACY);
+      const key = bestKey("twinkle");
+      if (old != null && localStorage.getItem(key) == null) {
+        localStorage.setItem(key, old);
+      }
+    } catch (err) {}
+  }
+  migrateBest();
+
+  function readBest(songId) {
+    const v = parseFloat(localStorage.getItem(bestKey(songId)) || "NaN");
+    return Number.isFinite(v) ? v : NaN;
+  }
+
+  function writeBest(songId, value) {
+    localStorage.setItem(bestKey(songId), String(value));
+  }
 
   const audio = new window.BowStarAudio();
   const engine = new E.PlayEngine();
@@ -185,9 +212,10 @@
   window.addEventListener("touchstart", preventScroll, { passive: false });
   window.addEventListener("touchmove", preventScroll, { passive: false });
 
-  async function beginPlay() {
+  async function beginPlay(songId) {
     await audio.unlock();
-    engine.reset();
+    if (songId) engine.setSong(songId);
+    else engine.reset();
     lastClickState = false;
     input.pointerDown = false;
     input.deltas.length = 0;
@@ -196,10 +224,11 @@
     if (audio.ctx) {
       if (audio.ctx.state === "suspended") await audio.ctx.resume();
       startAudioTime = audio.ctx.currentTime + 0.06;
-      audio.scheduleScore(startAudioTime, E);
+      audio.scheduleScore(startAudioTime, engine.song);
     } else {
       startAudioTime = null;
     }
+    if (el.hudSong) el.hudSong.textContent = engine.song.title;
     showScreen("play");
     el.hudScore.textContent = "—";
   }
@@ -209,12 +238,14 @@
     audio.cancelAccompaniment();
     const result = engine.result();
     lastResult = result;
-    let best = parseFloat(localStorage.getItem(STORE_BEST) || "NaN");
+    const songId = engine.song.id;
+    let best = readBest(songId);
     const isNew = !Number.isFinite(best) || result.shown > best;
     if (isNew) {
-      localStorage.setItem(STORE_BEST, String(result.shown));
+      writeBest(songId, result.shown);
       best = result.shown;
     }
+    if (el.resultSong) el.resultSong.textContent = "《" + engine.song.title + "》";
     el.headline.textContent = result.headline;
     el.score.textContent = "演奏分 " + result.shown.toFixed(1) + "%";
     el.best.classList.toggle("hidden", !isNew || result.shown <= 0);
@@ -223,15 +254,28 @@
     } else {
       el.sub.textContent = "評級：" + result.grade;
     }
+    const nextId = E.nextSongId(songId);
+    el.next.classList.toggle("hidden", !nextId);
+    el.next.dataset.song = nextId || "";
+    el.retry.classList.toggle("primary", !nextId);
+    el.retry.classList.toggle("ghost", !!nextId);
     R.paintTraceCard(traceCtx, result, traceCard.width, traceCard.height);
     showScreen("result");
   }
 
-  el.start.addEventListener("click", function () {
-    beginPlay();
-  });
+  if (el.levelPick) {
+    el.levelPick.addEventListener("click", function (ev) {
+      const btn = ev.target.closest("[data-song]");
+      if (!btn) return;
+      beginPlay(btn.getAttribute("data-song"));
+    });
+  }
   el.retry.addEventListener("click", function () {
     beginPlay();
+  });
+  el.next.addEventListener("click", function () {
+    const id = el.next.dataset.song;
+    if (id) beginPlay(id);
   });
   el.home.addEventListener("click", function () {
     audio.stopVoices();
@@ -284,7 +328,7 @@
         audio.update(engine);
         const live = engine.liveShown();
         el.hudScore.textContent = live == null ? "—" : live.toFixed(1) + "%";
-        if (engine.finished || t >= E.RESULT_AT) {
+        if (engine.finished || t >= engine.song.resultAt) {
           finishPlay();
         }
       }
