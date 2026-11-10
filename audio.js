@@ -125,9 +125,20 @@
     lfo.connect(lfoGain);
     lfoGain.connect(oscGain.gain);
 
+    // Slow pitch wander for 走音 (out-of-tune violin), summed with a static detune.
+    const pitchLfo = ctx.createOscillator();
+    pitchLfo.type = "sine";
+    pitchLfo.frequency.value = 1.8;
+    const pitchLfoGain = ctx.createGain();
+    pitchLfoGain.gain.value = 0;
+    pitchLfo.connect(pitchLfoGain);
+    pitchLfoGain.connect(saw.detune);
+    pitchLfoGain.connect(body.detune);
+
     saw.start();
     body.start();
     lfo.start();
+    pitchLfo.start();
 
     return {
       saw: saw,
@@ -142,6 +153,8 @@
       nGain: nGain,
       lfo: lfo,
       lfoGain: lfoGain,
+      pitchLfo: pitchLfo,
+      pitchLfoGain: pitchLfoGain,
       out: out,
       startedNoise: false,
       lastFreq: 440,
@@ -171,6 +184,9 @@
       v.nGain.gain.cancelScheduledValues(t);
       v.nGain.gain.setTargetAtTime(0, t, 0.03);
       v.lfoGain.gain.setTargetAtTime(0, t, 0.03);
+      v.pitchLfoGain.gain.setTargetAtTime(0, t, 0.03);
+      v.saw.detune.setTargetAtTime(0, t, 0.03);
+      v.body.detune.setTargetAtTime(0, t, 0.03);
     });
   };
 
@@ -283,6 +299,60 @@
     src.stop(t + 0.1);
   };
 
+  /**
+   * Off playing is 走音, not 沙聲: keep a bowed violin tone and sour the pitch.
+   * Detune is audio-only (kind, speed, lane distance). Scoring is untouched.
+   * Thresholds match engine.js (V_GII / V_LO / V_HI / V_SUKA) but are not used to rescore.
+   */
+  function zouYamFor(kind, sp, engine, voiceIndex) {
+    const V_GII = 0.25;
+    const V_LO = 0.36;
+    const V_HI = 1.8;
+    const V_SUKA = 2.4;
+    let cents = 0;
+    let wobble = 0;
+    let wobbleHz = 1.8;
+
+    if (kind === "gii") {
+      const excess = Math.min(1, (V_GII - sp) / V_GII);
+      cents = -(30 + excess * 16);
+      wobble = 11 + excess * 7;
+      wobbleHz = 1.35 + excess * 0.5;
+    } else if (kind === "suka") {
+      const excess = Math.min(1, (sp - V_SUKA) / 1.6);
+      cents = 32 + excess * 16;
+      wobble = 9 + excess * 6;
+      wobbleHz = 2.0 + excess * 0.8;
+    } else if (kind === "wrong") {
+      const required = engine.currentNote ? engine.currentNote.lane : engine.lanes[0];
+      const played = engine.lanes[voiceIndex] != null ? engine.lanes[voiceIndex] : engine.lanes[0];
+      const laneOff = (played != null && required != null) ? played - required : 1;
+      const dist = Math.max(1, Math.abs(laneOff));
+      // Stay in the touched string's pitch family, but sour it so it is not a clean other note.
+      cents = (laneOff >= 0 ? -30 : 30) + (dist > 1 ? (laneOff >= 0 ? -8 : 8) : 0);
+      wobble = 9;
+      wobbleHz = 1.7;
+    } else if (kind === "double") {
+      cents = voiceIndex === 0 ? -18 : 22;
+      wobble = 6;
+      wobbleHz = 1.6;
+    } else if (kind === "click") {
+      cents = -14;
+      wobble = 5;
+      wobbleHz = 2.4;
+    } else if (kind === "clean") {
+      const q = typeof engine.quality === "number" ? engine.quality : 1;
+      if (q < 1) {
+        if (sp < V_LO) cents = -16 * (1 - q);
+        else if (sp > V_HI) cents = 16 * (1 - q);
+        wobble = 5 * (1 - q);
+        wobbleHz = 1.8;
+      }
+    }
+
+    return { cents: cents, wobble: wobble, wobbleHz: wobbleHz };
+  }
+
   BowStarAudio.prototype.update = function (engine) {
     if (!this.ctx || !this.voices.length) return;
     const t = this.ctx.currentTime;
@@ -299,6 +369,9 @@
         ramps(v.oscGain.gain, 0, t, 0.03);
         ramps(v.nGain.gain, 0, t, 0.03);
         ramps(v.lfoGain.gain, 0, t, 0.03);
+        ramps(v.pitchLfoGain.gain, 0, t, 0.03);
+        v.saw.detune.setTargetAtTime(0, t, 0.03);
+        v.body.detune.setTargetAtTime(0, t, 0.03);
         continue;
       }
       const freq = freqs[i];
@@ -307,47 +380,40 @@
       v.bp.frequency.setTargetAtTime(freq * 1.6, t, 0.01);
       v.lastFreq = freq;
 
+      // Hair-like residual only. Off kinds used to raise noise (沙聲); they now stay tonal.
       let oscLvl = 0.09;
-      let noiseLvl = 0.03;
+      let noiseLvl = 0.01;
       let lp = 2600;
-      let nFreq = 900;
-      let nQ = 1.1;
-      let lfoAmt = 0;
+      let nFreq = 800;
+      let nQ = 1.2;
+      const zy = zouYamFor(kind, sp, engine, i);
 
       if (kind === "gii") {
-        oscLvl = 0.055;
-        noiseLvl = 0.12;
-        lp = 1400;
-        nFreq = 420;
-        nQ = 0.8;
-        lfoAmt = 0.03;
-        v.lfo.frequency.setTargetAtTime(7 + sp * 4, t, 0.02);
+        oscLvl = 0.095;
+        noiseLvl = 0.01;
+        lp = 2000;
       } else if (kind === "suka") {
-        oscLvl = 0.035;
-        noiseLvl = 0.07;
-        lp = 4200;
-        nFreq = 2400;
-        nQ = 0.6;
-        lfoAmt = 0;
-      } else if (kind === "click") {
-        oscLvl = 0.04;
-        noiseLvl = 0.2;
-        lp = 1800;
-        nFreq = 1500;
-      } else if (kind === "wrong") {
-        oscLvl = 0.08;
-        noiseLvl = 0.04;
-        lp = 2400;
-      } else if (kind === "double") {
-        oscLvl = 0.07;
-        noiseLvl = 0.035;
-      } else {
-        // clean, with a little grit near the edges
-        const edgeSlow = sp < 0.5 ? (0.5 - sp) / 0.5 : 0;
-        const edgeFast = sp > 1.6 ? (sp - 1.6) / 1.0 : 0;
         oscLvl = 0.1;
-        noiseLvl = 0.028 + edgeSlow * 0.05 + edgeFast * 0.03;
-        lp = 2800 - edgeSlow * 800 + edgeFast * 800;
+        noiseLvl = 0.008;
+        lp = 3000;
+      } else if (kind === "click") {
+        // Brief articulation comes from playClick(); do not scrape here.
+        oscLvl = 0.085;
+        noiseLvl = 0.012;
+        lp = 2400;
+      } else if (kind === "wrong") {
+        oscLvl = 0.095;
+        noiseLvl = 0.01;
+        lp = 2600;
+      } else if (kind === "double") {
+        oscLvl = 0.08;
+        noiseLvl = 0.01;
+        lp = 2500;
+      } else {
+        // Clean mid-band stays in tune. Edge speeds lose the old sand and only sour slightly when quality < 1.
+        oscLvl = 0.1;
+        noiseLvl = 0.01;
+        lp = 2800;
       }
 
       if (kind === "clean" || kind === "wrong" || kind === "double") {
@@ -355,12 +421,19 @@
         oscLvl *= mid;
       }
 
+      v.saw.detune.setTargetAtTime(zy.cents, t, 0.03);
+      // Mild inharmonic offset on the body when sour, so it is not a perfect octave.
+      const bodyCents = zy.cents === 0 ? 0 : zy.cents + (zy.cents > 0 ? 6 : -6);
+      v.body.detune.setTargetAtTime(bodyCents, t, 0.03);
+      v.pitchLfo.frequency.setTargetAtTime(zy.wobbleHz, t, 0.05);
+      ramps(v.pitchLfoGain.gain, zy.wobble, t, 0.04);
+
       ramps(v.oscGain.gain, oscLvl, t, 0.025);
       ramps(v.nGain.gain, noiseLvl, t, 0.025);
       v.lp.frequency.setTargetAtTime(lp, t, 0.02);
       v.nBp.frequency.setTargetAtTime(nFreq, t, 0.02);
       v.nBp.Q.setTargetAtTime(nQ, t, 0.02);
-      ramps(v.lfoGain.gain, lfoAmt, t, 0.03);
+      ramps(v.lfoGain.gain, 0, t, 0.03);
     }
   };
 
