@@ -244,7 +244,7 @@
   const JOY_TUNE = [].concat(JOY_A, JOY_B, JOY_C, JOY_D);
 
   /*
-   * LWFSS school song 《校歌》 — fresh transcription from the official
+   * LWFSS school song 《龍岡精神》 — fresh transcription from the official
    * published sheet (treble clef, F major / one flat, 4/4, 14 systems,
    * 28 bars). Durations: q=1, 8=0.5, dq=1.5, h=2. Accidentals: F# and B♮.
    * Fermatas on the last F of bars 8, 16 and 28 are treated as the
@@ -264,7 +264,7 @@
    *   C4=G(5) D4=D(0) E4=D(2) F4=D(3) F#4=D(4) G4=D(5)
    *   A4=A(0) Bb4=A(1) B♮4=A(2) C5=A(3) D5=A(5) F5=E(1)
    *
-   * SYS-01  Lung Kong spirit / 龍崗精神
+   * SYS-01  Lung Kong spirit / 龍岡精神
    *   1: C4(q) C4(q) F4(q) C4(q)
    *   2: F4(8) E4(8) F4(8) G4(8) A4(h)
    * SYS-02  Unifying / 世界光照
@@ -413,8 +413,8 @@
     }),
     makeSong({
       id: "school",
-      title: "校歌",
-      label: "第四關　校歌",
+      title: "龍岡精神",
+      label: "第四關　龍岡精神",
       key: "F",
       bpm: 96,
       tune: SCHOOL_TUNE,

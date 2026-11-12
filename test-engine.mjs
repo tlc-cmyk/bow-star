@@ -237,8 +237,8 @@ assert.ok(stillJ.shown <= 2, "joy still run should be near 0, got " + stillJ.sho
 
 const school = E.getSong("school");
 assertContinuous(school);
-assert.equal(school.title, "校歌");
-assert.equal(school.label, "第四關　校歌");
+assert.equal(school.title, "龍岡精神");
+assert.equal(school.label, "第四關　龍岡精神");
 assert.equal(school.key, "F");
 assert.equal(school.bpm, 96);
 assert.ok(school.bpm >= 85 && school.bpm <= 105, "school bpm should be a playable andante");
@@ -262,7 +262,7 @@ assert.equal(school.piano.filter((e) => e.kind === "downbeat").length, 56);
 
 const engS = run(perfectBot(), "school");
 const rS = engS.result();
-console.log("\n[7] perfect bot — 校歌");
+console.log("\n[7] perfect bot — 龍岡精神");
 console.log("  shown:", rS.shown, " grade:", rS.grade, " type:", rS.type, " ends:", rS.endCount, " notes:", school.notes.length);
 assert.ok(engS.finished, "school should finish");
 assert.ok(rS.shown >= 90, "school perfect bot should be 名演/神技, got " + rS.shown);
@@ -314,7 +314,7 @@ assert.equal(E.scoreToTenths(100), 1000);
 assert.equal(E.scoreToTenths(-1), 0);
 assert.equal(E.scoreToTenths(120), 1000);
 assert.equal(E.formatBoardScore(973, "twinkle"), "97.3%　一閃一閃");
-assert.equal(E.formatBoardScore(1000, "school"), "100.0%　校歌");
+assert.equal(E.formatBoardScore(1000, "school"), "100.0%　龍岡精神");
 assert.equal(E.songTitleOf("tigers"), "兩隻老虎");
 assert.equal(E.songTitleOf("joy"), "歡樂頌");
 assert.equal(E.isValidSongKey("twinkle"), true);
