@@ -271,4 +271,90 @@ assert.ok(stillS.shown <= 2, "school still run should be near 0, got " + stillS.
 E.setSong("twinkle");
 assert.equal(E.NOTES.length, 42, "setSong should restore twinkle globals");
 
+console.log("\n[8] player name and leaderboard ranking");
+assert.equal(E.PLAYER_NAME_KEY, "bow-star-player-name");
+assert.equal(E.CLASS_CODES.length, 24);
+assert.equal(E.CLASS_CODES[0], "1A");
+assert.equal(E.CLASS_CODES[23], "6D");
+assert.equal(E.formatPlayerName("1A", 1), "1A01");
+assert.equal(E.formatPlayerName("6d", 40), "6D40");
+assert.equal(E.formatPlayerName("1E", 1), "");
+assert.equal(E.formatPlayerName("1A", 0), "");
+assert.equal(E.formatPlayerName("1A", 41), "");
+assert.equal(E.normalizePlayerName("  1a7  "), "1A07");
+assert.equal(E.normalizePlayerName("6D40"), "6D40");
+assert.equal(E.normalizePlayerName("   "), "");
+assert.equal(E.normalizePlayerName(null), "");
+assert.equal(E.normalizePlayerName(undefined), "");
+assert.equal(E.normalizePlayerName("小明"), "小明");
+assert.equal(E.isValidPlayerName(""), false);
+assert.equal(E.isValidPlayerName("   "), false);
+assert.equal(E.isValidPlayerName("小明"), false);
+assert.equal(E.isValidPlayerName("A"), false);
+assert.equal(E.isValidPlayerName("1A"), false);
+assert.equal(E.isValidPlayerName("1A00"), false);
+assert.equal(E.isValidPlayerName("1A01"), true);
+assert.equal(E.isValidPlayerName("1a1"), true);
+assert.equal(E.isValidPlayerName("  1A40  "), true);
+assert.equal(E.isValidPlayerName("1A41"), false);
+assert.equal(E.isValidPlayerName("7A01"), false);
+assert.equal(E.isValidPlayerName("1E01"), false);
+assert.equal(E.isValidPlayerName("Tommy"), false);
+assert.equal(E.isValidPlayerName("值班同學"), false);
+assert.deepEqual(E.parsePlayerName("2C09"), { classCode: "2C", number: 9 });
+assert.equal(E.parsePlayerName("hello"), null);
+assert.equal(E.parsePlayerName("值班同學"), null);
+
+assert.equal(E.scoreToTenths(97.3), 973);
+assert.equal(E.scoreToTenths(0), 0);
+assert.equal(E.scoreToTenths(100), 1000);
+assert.equal(E.scoreToTenths(-1), 0);
+assert.equal(E.scoreToTenths(120), 1000);
+assert.equal(E.formatBoardScore(973, "twinkle"), "97.3%　一閃一閃");
+assert.equal(E.formatBoardScore(1000, "school"), "100.0%　校歌");
+assert.equal(E.songTitleOf("tigers"), "兩隻老虎");
+assert.equal(E.songTitleOf("joy"), "歡樂頌");
+assert.equal(E.isValidSongKey("twinkle"), true);
+assert.equal(E.isValidSongKey("school"), true);
+assert.equal(E.isValidSongKey("unknown"), false);
+assert.equal(E.isValidSongKey(""), false);
+
+const rows = [
+  { player_name: "1A02", score: 900, song_key: "joy", created_at: "2026-11-12T03:00:00.000Z" },
+  { player_name: "1A01", score: 900, song_key: "twinkle", created_at: "2026-11-12T01:00:00.000Z" },
+  { player_name: "2B10", score: 800, song_key: "tigers", created_at: "2026-11-12T02:00:00.000Z" },
+  { player_name: "3C01", score: 100, song_key: "school", created_at: "2026-11-12T04:00:00.000Z" },
+  { player_name: "3C02", score: 100, song_key: "twinkle", created_at: "2026-11-12T03:30:00.000Z" },
+];
+for (let i = 0; i < 22; i++) {
+  const mm = i < 10 ? "0" + i : String(i);
+  rows.push({
+    player_name: "6D" + (i < 9 ? "0" + (i + 1) : String(i + 1)),
+    score: 50 - i,
+    song_key: "twinkle",
+    created_at: "2026-11-12T06:" + mm + ":00.000Z",
+  });
+}
+assert.equal(rows.length, 27);
+assert.equal(E.LEADERBOARD_LIMIT, 20);
+const ranked = E.rankScores(rows);
+assert.equal(ranked.length, 20);
+assert.equal(ranked[0].rank, 1);
+assert.equal(ranked[0].player_name, "1A01");
+assert.equal(ranked[0].song_key, "twinkle");
+assert.equal(ranked[1].player_name, "1A02");
+assert.equal(ranked[2].player_name, "2B10");
+assert.equal(ranked[3].player_name, "3C02");
+assert.equal(ranked[4].player_name, "3C01");
+assert.equal(ranked[19].rank, 20);
+assert.equal(ranked[19].score, 36);
+assert.equal(E.isSameScoreRow(ranked[0], {
+  player_name: "1A01",
+  score: 900,
+  song_key: "twinkle",
+  created_at: "2026-11-12T01:00:00.000Z",
+}), true);
+assert.equal(E.isSameScoreRow(ranked[0], ranked[1]), false);
+assert.deepEqual(E.rankScores([], 20), []);
+
 console.log("\nAll headless tests passed.");

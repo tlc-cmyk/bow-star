@@ -31,11 +31,22 @@
     hudSong: document.getElementById("hud-song"),
     resultSong: document.getElementById("result-song"),
     levelPick: document.querySelector(".level-pick"),
+    classSelect: document.getElementById("player-class"),
+    numberSelect: document.getElementById("player-number"),
+    titleBoard: document.getElementById("title-board"),
+    resultBoard: document.getElementById("result-board"),
+    resultBoardNote: document.getElementById("result-board-note"),
   };
 
   const STORE_MUTE = "bowstar-v2-mute";
   const STORE_BEST_LEGACY = "bowstar-v2-best";
   const STORE_HINT = "bowstar-v2-hint";
+  const BOARD_URL = "https://vambwvkvnlebmpqajxjp.supabase.co/rest/v1/bow_star_scores";
+  const BOARD_KEY = "sb_publishable_KNzP-iOTjXzcVygVYMQ3zw_ge3bmzym";
+
+  let playerName = "";
+  let resultSubmitted = false;
+  let highlightRow = null;
 
   function bestKey(songId) {
     return "bowstar-v2-best-" + songId;
@@ -59,6 +70,200 @@
 
   function writeBest(songId, value) {
     localStorage.setItem(bestKey(songId), String(value));
+  }
+
+  function boardHeaders(forJson) {
+    const headers = {
+      apikey: BOARD_KEY,
+      Authorization: "Bearer " + BOARD_KEY,
+      Accept: "application/json",
+    };
+    if (forJson) headers["Content-Type"] = "application/json";
+    return headers;
+  }
+
+  function readStoredName() {
+    try {
+      return E.normalizePlayerName(window.localStorage.getItem(E.PLAYER_NAME_KEY) || "");
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function writeStoredName(name) {
+    try {
+      window.localStorage.setItem(E.PLAYER_NAME_KEY, name);
+    } catch (err) { /* ignore quota / private mode */ }
+  }
+
+  function fillNameOptions() {
+    let i, opt, n;
+    if (el.classSelect && el.classSelect.options.length <= 1) {
+      for (i = 0; i < E.CLASS_CODES.length; i++) {
+        opt = document.createElement("option");
+        opt.value = E.CLASS_CODES[i];
+        opt.textContent = E.CLASS_CODES[i];
+        el.classSelect.appendChild(opt);
+      }
+    }
+    if (el.numberSelect && el.numberSelect.options.length <= 1) {
+      for (n = 1; n <= 40; n++) {
+        opt = document.createElement("option");
+        opt.value = String(n);
+        opt.textContent = String(n);
+        el.numberSelect.appendChild(opt);
+      }
+    }
+  }
+
+  function currentName() {
+    const cls = el.classSelect ? el.classSelect.value : "";
+    const num = el.numberSelect ? el.numberSelect.value : "";
+    return E.formatPlayerName(cls, num) || "";
+  }
+
+  function syncStartEnabled() {
+    const ok = E.isValidPlayerName(currentName());
+    if (el.levelPick) {
+      const btns = el.levelPick.querySelectorAll("[data-song]");
+      for (let i = 0; i < btns.length; i++) btns[i].disabled = !ok;
+    }
+    return ok;
+  }
+
+  function applyStoredName() {
+    playerName = readStoredName();
+    const parsed = E.parsePlayerName(playerName);
+    if (parsed) {
+      if (el.classSelect) el.classSelect.value = parsed.classCode;
+      if (el.numberSelect) el.numberSelect.value = String(parsed.number);
+      playerName = E.formatPlayerName(parsed.classCode, parsed.number);
+    } else {
+      playerName = "";
+    }
+    syncStartEnabled();
+  }
+
+  function commitPlayerName() {
+    const name = currentName();
+    if (!E.isValidPlayerName(name)) return "";
+    playerName = name;
+    writeStoredName(name);
+    syncStartEnabled();
+    return name;
+  }
+
+  function renderBoard(container, rows, highlight) {
+    if (!container) return;
+    container.textContent = "";
+    if (!rows || !rows.length) {
+      container.classList.add("is-empty");
+      container.textContent = "暫時未有紀錄";
+      return;
+    }
+    container.classList.remove("is-empty");
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const li = document.createElement("li");
+      if (highlight && E.isSameScoreRow(row, highlight)) li.className = "is-mine";
+      const rank = document.createElement("span");
+      rank.className = "board-rank";
+      rank.textContent = String(row.rank);
+      const nameEl = document.createElement("span");
+      nameEl.className = "board-name";
+      nameEl.textContent = row.player_name;
+      const scoreEl = document.createElement("span");
+      scoreEl.className = "board-score";
+      scoreEl.textContent = E.formatBoardScore(row.score, row.song_key);
+      li.appendChild(rank);
+      li.appendChild(nameEl);
+      li.appendChild(scoreEl);
+      container.appendChild(li);
+    }
+  }
+
+  function fetchTop20() {
+    const url = BOARD_URL +
+      "?select=player_name,score,song_key,created_at&order=score.desc,created_at.asc&limit=20";
+    return fetch(url, { headers: boardHeaders(false) }).then(function (res) {
+      if (!res.ok) throw new Error("board " + res.status);
+      return res.json();
+    }).then(function (rows) {
+      return E.rankScores(rows, E.LEADERBOARD_LIMIT);
+    });
+  }
+
+  function refreshBoards(highlight) {
+    return fetchTop20().then(function (rows) {
+      renderBoard(el.titleBoard, rows, highlight);
+      renderBoard(el.resultBoard, rows, highlight);
+      return rows;
+    });
+  }
+
+  function postScore(name, score, songKey) {
+    return fetch(BOARD_URL, {
+      method: "POST",
+      headers: (function () {
+        const h = boardHeaders(true);
+        h.Prefer = "return=representation";
+        return h;
+      })(),
+      body: JSON.stringify({ player_name: name, score: score, song_key: songKey }),
+    }).then(function (res) {
+      if (!res.ok) throw new Error("board " + res.status);
+      return res.json();
+    }).then(function (body) {
+      if (Array.isArray(body)) return body[0] || null;
+      return body || null;
+    });
+  }
+
+  function setBoardNote(msg) {
+    if (!el.resultBoardNote) return;
+    if (msg) {
+      el.resultBoardNote.hidden = false;
+      el.resultBoardNote.textContent = msg;
+    } else {
+      el.resultBoardNote.hidden = true;
+      el.resultBoardNote.textContent = "";
+    }
+  }
+
+  function submitResultScore() {
+    if (resultSubmitted || !lastResult) return;
+    resultSubmitted = true;
+    setBoardNote("");
+    const name = playerName || commitPlayerName();
+    const songKey = lastResult.song && lastResult.song.id;
+    const score = E.scoreToTenths(lastResult.shown);
+    if (!E.isValidPlayerName(name) || !E.isValidSongKey(songKey)) {
+      setBoardNote("暫時未能上載排行榜");
+      return;
+    }
+    postScore(name, score, songKey).then(function (posted) {
+      highlightRow = posted
+        ? {
+            player_name: posted.player_name,
+            score: posted.score | 0,
+            song_key: posted.song_key || songKey,
+            created_at: posted.created_at || "",
+          }
+        : { player_name: name, score: score, song_key: songKey, created_at: "" };
+      return refreshBoards(highlightRow);
+    }).catch(function () {
+      setBoardNote("暫時未能上載排行榜");
+    });
+  }
+
+  function requirePlayerName() {
+    const name = playerName || commitPlayerName();
+    if (E.isValidPlayerName(name)) return name;
+    syncStartEnabled();
+    showScreen("title");
+    if (el.classSelect && !el.classSelect.value) el.classSelect.focus();
+    else if (el.numberSelect) el.numberSelect.focus();
+    return "";
   }
 
   const audio = new window.BowStarAudio();
@@ -160,7 +365,7 @@
 
   function onPointerDown(ev) {
     if (screen !== "play" && screen !== "title") return;
-    if (ev.target && ev.target.closest && ev.target.closest("button, .panel")) return;
+    if (ev.target && ev.target.closest && ev.target.closest("button, .panel, select")) return;
     ev.preventDefault();
     try {
       canvas.setPointerCapture(ev.pointerId);
@@ -201,7 +406,7 @@
   }
 
   function preventScroll(ev) {
-    if (ev.target && ev.target.closest && ev.target.closest("button, .panel, .icon-btn")) return;
+    if (ev.target && ev.target.closest && ev.target.closest("button, .panel, .icon-btn, select")) return;
     ev.preventDefault();
   }
 
@@ -213,6 +418,9 @@
   window.addEventListener("touchmove", preventScroll, { passive: false });
 
   async function beginPlay(songId) {
+    if (!requirePlayerName()) return;
+    resultSubmitted = false;
+    setBoardNote("");
     await audio.unlock();
     if (songId) engine.setSong(songId);
     else engine.reset();
@@ -261,12 +469,14 @@
     el.retry.classList.toggle("ghost", !!nextId);
     R.paintTraceCard(traceCtx, result, traceCard.width, traceCard.height);
     showScreen("result");
+    submitResultScore();
   }
 
   if (el.levelPick) {
     el.levelPick.addEventListener("click", function (ev) {
       const btn = ev.target.closest("[data-song]");
-      if (!btn) return;
+      if (!btn || btn.disabled) return;
+      if (!requirePlayerName()) return;
       beginPlay(btn.getAttribute("data-song"));
     });
   }
@@ -283,6 +493,7 @@
     startAudioTime = null;
     engine.reset();
     showScreen("title");
+    refreshBoards(highlightRow).catch(function () { /* keep last board */ });
   });
   el.mute.addEventListener("click", function () {
     setMuted(!muted);
@@ -293,6 +504,12 @@
   el.muteResult.addEventListener("click", function () {
     setMuted(!muted);
   });
+  function onNamePickChange() {
+    if (E.isValidPlayerName(currentName())) commitPlayerName();
+    else syncStartEnabled();
+  }
+  if (el.classSelect) el.classSelect.addEventListener("change", onNamePickChange);
+  if (el.numberSelect) el.numberSelect.addEventListener("change", onNamePickChange);
 
   function paintFrame() {
     const now = screen === "play" ? engine.time : 0;
@@ -347,6 +564,9 @@
 
   setMuted(muted);
   resize();
+  fillNameOptions();
+  applyStoredName();
   showScreen("title");
+  refreshBoards(highlightRow).catch(function () { /* keep empty board */ });
   requestAnimationFrame(loop);
 })();

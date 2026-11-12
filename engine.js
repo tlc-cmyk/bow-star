@@ -886,6 +886,115 @@
     };
   };
 
+
+  const PLAYER_NAME_KEY = "bow-star-player-name";
+  const CLASS_LETTERS = "ABCD";
+  const CLASS_CODES = [];
+  (function buildClassCodes() {
+    for (let f = 1; f <= 6; f++) {
+      for (let i = 0; i < CLASS_LETTERS.length; i++) {
+        CLASS_CODES.push(String(f) + CLASS_LETTERS.charAt(i));
+      }
+    }
+  })();
+
+  function pad2(n) {
+    return n < 10 ? "0" + n : String(n);
+  }
+
+  function formatPlayerName(classCode, number) {
+    const cls = String(classCode == null ? "" : classCode).toUpperCase();
+    const n = number | 0;
+    if (CLASS_CODES.indexOf(cls) < 0) return "";
+    if (n < 1 || n > 40) return "";
+    return cls + pad2(n);
+  }
+
+  function normalizePlayerName(raw) {
+    if (raw == null) return "";
+    const trimmed = String(raw).replace(/^\s+|\s+$/g, "");
+    if (!trimmed) return "";
+    const compact = trimmed.toUpperCase().replace(/\s+/g, "");
+    const m = /^([1-6][A-D])(\d{1,2})$/.exec(compact);
+    if (!m) return trimmed;
+    return formatPlayerName(m[1], +m[2]) || trimmed;
+  }
+
+  function isValidPlayerName(raw) {
+    return /^[1-6][A-D](0[1-9]|[1-3][0-9]|40)$/.test(normalizePlayerName(raw));
+  }
+
+  function parsePlayerName(raw) {
+    const name = normalizePlayerName(raw);
+    const m = /^([1-6][A-D])(\d{2})$/.exec(name);
+    if (!m || !isValidPlayerName(name)) return null;
+    return { classCode: m[1], number: +m[2] };
+  }
+
+  function isValidSongKey(id) {
+    return !!(id && SONGS_BY_ID[id]);
+  }
+
+  function songTitleOf(id) {
+    return SONGS_BY_ID[id] ? SONGS_BY_ID[id].title : "";
+  }
+
+  function scoreToTenths(shown) {
+    let n = Math.round(Number(shown) * 10);
+    if (!isFinite(n)) return 0;
+    if (n < 0) return 0;
+    if (n > 1000) return 1000;
+    return n;
+  }
+
+  function formatBoardScore(tenths, songKey) {
+    let n = tenths | 0;
+    if (n < 0) n = 0;
+    if (n > 1000) n = 1000;
+    let text = (n / 10).toFixed(1) + "%";
+    const title = songTitleOf(songKey);
+    if (title) text += "　" + title;
+    return text;
+  }
+
+  const LEADERBOARD_LIMIT = 20;
+
+  /**
+   * 排名：分數（十分之一百分比）高者在前，同分以較早 created_at 優先，最多 20 名。
+   */
+  function rankScores(rows, limit) {
+    const list = (rows || []).slice();
+    list.sort(function (a, b) {
+      const sa = (a && a.score) | 0;
+      const sb = (b && b.score) | 0;
+      if (sb !== sa) return sb - sa;
+      const ta = (a && a.created_at) || "";
+      const tb = (b && b.created_at) || "";
+      if (ta < tb) return -1;
+      if (ta > tb) return 1;
+      return 0;
+    });
+    let cap = limit == null ? LEADERBOARD_LIMIT : limit;
+    if (cap < 0) cap = 0;
+    return list.slice(0, cap).map(function (row, i) {
+      return {
+        rank: i + 1,
+        player_name: row && row.player_name != null ? String(row.player_name) : "",
+        score: (row && row.score) | 0,
+        song_key: row && row.song_key != null ? String(row.song_key) : "",
+        created_at: (row && row.created_at) || "",
+      };
+    });
+  }
+
+  function isSameScoreRow(a, b) {
+    if (!a || !b) return false;
+    return a.player_name === b.player_name &&
+      ((a.score) | 0) === ((b.score) | 0) &&
+      (a.song_key || "") === (b.song_key || "") &&
+      (a.created_at || "") === (b.created_at || "");
+  }
+
   const api = {
     TAIL: TAIL,
     V_STOP: V_STOP,
@@ -919,6 +1028,19 @@
     getCurrentSong: getCurrentSong,
     nextSongId: nextSongId,
     PlayEngine: PlayEngine,
+    PLAYER_NAME_KEY: PLAYER_NAME_KEY,
+    CLASS_CODES: CLASS_CODES,
+    formatPlayerName: formatPlayerName,
+    normalizePlayerName: normalizePlayerName,
+    isValidPlayerName: isValidPlayerName,
+    parsePlayerName: parsePlayerName,
+    isValidSongKey: isValidSongKey,
+    songTitleOf: songTitleOf,
+    scoreToTenths: scoreToTenths,
+    formatBoardScore: formatBoardScore,
+    LEADERBOARD_LIMIT: LEADERBOARD_LIMIT,
+    rankScores: rankScores,
+    isSameScoreRow: isSameScoreRow,
   };
 
   setSong("twinkle");
