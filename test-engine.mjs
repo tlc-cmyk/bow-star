@@ -4,6 +4,9 @@
  */
 import { createRequire } from "node:module";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const E = require("./engine.js");
@@ -315,9 +318,48 @@ assert.equal(E.formatBoardScore(1000, "school"), "100.0%　校歌");
 assert.equal(E.songTitleOf("tigers"), "兩隻老虎");
 assert.equal(E.songTitleOf("joy"), "歡樂頌");
 assert.equal(E.isValidSongKey("twinkle"), true);
+assert.equal(E.isValidSongKey("tigers"), true);
+assert.equal(E.isValidSongKey("joy"), true);
 assert.equal(E.isValidSongKey("school"), true);
 assert.equal(E.isValidSongKey("unknown"), false);
 assert.equal(E.isValidSongKey(""), false);
+assert.equal(E.isValidSongKey("校歌"), false);
+assert.equal(E.isValidSongKey("一閃一閃"), false);
+assert.equal(E.isValidSongKey("兩隻老虎"), false);
+assert.equal(E.isValidSongKey("歡樂頌"), false);
+assert.equal(E.formatBoardScore(800, "tigers"), "80.0%　兩隻老虎");
+assert.equal(E.formatBoardScore(750, "joy"), "75.0%　歡樂頌");
+
+const ALLOWED_SONG_KEYS = ["twinkle", "tigers", "joy", "school"];
+assert.deepEqual(E.SONGS.map((s) => s.id), ALLOWED_SONG_KEYS);
+for (let i = 0; i < ALLOWED_SONG_KEYS.length; i++) {
+  const id = ALLOWED_SONG_KEYS[i];
+  assert.equal(E.getSong(id).id, id);
+  assert.equal(E.isValidSongKey(id), true);
+  const eng = new E.PlayEngine(id);
+  const result = eng.result();
+  const songKey = result.song && result.song.id;
+  assert.equal(songKey, id);
+  assert.equal(E.isValidSongKey(songKey), true);
+  const payload = { player_name: "1A01", score: E.scoreToTenths(result.shown), song_key: songKey };
+  assert.equal(payload.song_key, id);
+  assert.notEqual(payload.song_key, "school" === id ? "twinkle" : "school");
+}
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const gameSrc = fs.readFileSync(path.join(here, "game.js"), "utf8");
+const fetchUrlMatch = gameSrc.match(/BOARD_URL\s*\+[\s\S]*?("[^"]*select=[^"]*")/);
+assert.ok(fetchUrlMatch, "game.js should build a PostgREST select URL");
+const boardQuery = fetchUrlMatch[1];
+assert.match(boardQuery, /select=player_name,score,song_key,created_at/);
+assert.match(boardQuery, /order=score\.desc,created_at\.asc/);
+assert.match(boardQuery, /limit=20/);
+assert.doesNotMatch(boardQuery, /song_key=eq/);
+assert.doesNotMatch(gameSrc, /song_key=eq\.school/);
+assert.doesNotMatch(gameSrc, /song_key:\s*["']school["']/);
+assert.match(gameSrc, /const songKey = lastResult\.song && lastResult\.song\.id;/);
+assert.match(gameSrc, /isValidSongKey\(songKey\)/);
+assert.match(gameSrc, /song_key: songKey/);
 
 const rows = [
   { player_name: "1A02", score: 900, song_key: "joy", created_at: "2026-11-12T03:00:00.000Z" },
