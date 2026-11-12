@@ -987,6 +987,15 @@
     });
   }
 
+  const PUBLIC_BOARD_SONG_KEY = "school";
+
+  function rankPublicBoard(rows, limit) {
+    const only = (rows || []).filter(function (row) {
+      return row && row.song_key === PUBLIC_BOARD_SONG_KEY;
+    });
+    return rankScores(only, limit);
+  }
+
   function isSameScoreRow(a, b) {
     if (!a || !b) return false;
     return a.player_name === b.player_name &&
@@ -1039,7 +1048,9 @@
     scoreToTenths: scoreToTenths,
     formatBoardScore: formatBoardScore,
     LEADERBOARD_LIMIT: LEADERBOARD_LIMIT,
+    PUBLIC_BOARD_SONG_KEY: PUBLIC_BOARD_SONG_KEY,
     rankScores: rankScores,
+    rankPublicBoard: rankPublicBoard,
     isSameScoreRow: isSameScoreRow,
   };
 

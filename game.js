@@ -184,12 +184,12 @@
 
   function fetchTop20() {
     const url = BOARD_URL +
-      "?select=player_name,score,song_key,created_at&order=score.desc,created_at.asc&limit=20";
+      "?select=player_name,score,song_key,created_at&song_key=eq.school&order=score.desc,created_at.asc&limit=20";
     return fetch(url, { headers: boardHeaders(false) }).then(function (res) {
       if (!res.ok) throw new Error("board " + res.status);
       return res.json();
     }).then(function (rows) {
-      return E.rankScores(rows, E.LEADERBOARD_LIMIT);
+      return E.rankPublicBoard(rows, E.LEADERBOARD_LIMIT);
     });
   }
 
@@ -237,6 +237,10 @@
     const name = playerName || commitPlayerName();
     const songKey = lastResult.song && lastResult.song.id;
     const score = E.scoreToTenths(lastResult.shown);
+    if (songKey !== "school") {
+      refreshBoards(highlightRow).catch(function () { /* keep last board */ });
+      return;
+    }
     if (!E.isValidPlayerName(name) || !E.isValidSongKey(songKey)) {
       setBoardNote("暫時未能上載排行榜");
       return;

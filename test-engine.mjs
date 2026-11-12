@@ -238,6 +238,8 @@ assert.ok(stillJ.shown <= 2, "joy still run should be near 0, got " + stillJ.sho
 const school = E.getSong("school");
 assertContinuous(school);
 assert.equal(school.title, "龍岡精神");
+assert.equal(school.title, String.fromCodePoint(0x9F8D, 0x5CA1, 0x7CBE, 0x795E));
+assert.deepEqual([...school.title].map((ch) => ch.codePointAt(0)), [0x9F8D, 0x5CA1, 0x7CBE, 0x795E]);
 assert.equal(school.label, "第四關　龍岡精神");
 assert.equal(school.key, "F");
 assert.equal(school.bpm, 96);
@@ -332,6 +334,7 @@ assert.equal(E.formatBoardScore(750, "joy"), "75.0%　歡樂頌");
 
 const ALLOWED_SONG_KEYS = ["twinkle", "tigers", "joy", "school"];
 assert.deepEqual(E.SONGS.map((s) => s.id), ALLOWED_SONG_KEYS);
+assert.equal(E.PUBLIC_BOARD_SONG_KEY, "school");
 for (let i = 0; i < ALLOWED_SONG_KEYS.length; i++) {
   const id = ALLOWED_SONG_KEYS[i];
   assert.equal(E.getSong(id).id, id);
@@ -340,10 +343,8 @@ for (let i = 0; i < ALLOWED_SONG_KEYS.length; i++) {
   const result = eng.result();
   const songKey = result.song && result.song.id;
   assert.equal(songKey, id);
-  assert.equal(E.isValidSongKey(songKey), true);
-  const payload = { player_name: "1A01", score: E.scoreToTenths(result.shown), song_key: songKey };
-  assert.equal(payload.song_key, id);
-  assert.notEqual(payload.song_key, "school" === id ? "twinkle" : "school");
+  const shouldPost = songKey === "school";
+  assert.equal(shouldPost, id === "school", id + " should " + (id === "school" ? "" : "not ") + "be posted to the public board");
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -352,19 +353,34 @@ const fetchUrlMatch = gameSrc.match(/BOARD_URL\s*\+[\s\S]*?("[^"]*select=[^"]*")
 assert.ok(fetchUrlMatch, "game.js should build a PostgREST select URL");
 const boardQuery = fetchUrlMatch[1];
 assert.match(boardQuery, /select=player_name,score,song_key,created_at/);
+assert.match(boardQuery, /song_key=eq\.school/);
 assert.match(boardQuery, /order=score\.desc,created_at\.asc/);
 assert.match(boardQuery, /limit=20/);
-assert.doesNotMatch(boardQuery, /song_key=eq/);
-assert.doesNotMatch(gameSrc, /song_key=eq\.school/);
-assert.doesNotMatch(gameSrc, /song_key:\s*["']school["']/);
+assert.match(gameSrc, /song_key=eq\.school/);
+assert.match(gameSrc, /rankPublicBoard/);
 assert.match(gameSrc, /const songKey = lastResult\.song && lastResult\.song\.id;/);
+assert.match(gameSrc, /if \(songKey !== "school"\)/);
 assert.match(gameSrc, /isValidSongKey\(songKey\)/);
 assert.match(gameSrc, /song_key: songKey/);
+const submitStart = gameSrc.indexOf("function submitResultScore");
+assert.ok(submitStart >= 0, "submitResultScore should exist");
+const submitFn = gameSrc.slice(submitStart, gameSrc.indexOf("function requirePlayerName", submitStart));
+const skipIdx = submitFn.indexOf('if (songKey !== "school")');
+const postIdx = submitFn.indexOf("postScore(");
+const skipMatch = submitFn.match(/if \(songKey !== "school"\) \{[\s\S]*?\n    \}/);
+assert.ok(skipMatch, "submitResultScore should skip non-school songs");
+assert.ok(skipIdx >= 0 && postIdx > skipIdx, "non-school runs must be skipped before POST");
+assert.equal(skipMatch[0].includes("暫時未能上載排行榜"), false, "skipping a non-school upload must not show an upload-failure note");
+assert.match(skipMatch[0], /return;/);
+assert.doesNotMatch(skipMatch[0], /postScore/);
+assert.doesNotMatch(submitFn, /postScore\([^)]*(twinkle|tigers|joy)/);
 
 const rows = [
   { player_name: "1A02", score: 900, song_key: "joy", created_at: "2026-11-12T03:00:00.000Z" },
   { player_name: "1A01", score: 900, song_key: "twinkle", created_at: "2026-11-12T01:00:00.000Z" },
   { player_name: "2B10", score: 800, song_key: "tigers", created_at: "2026-11-12T02:00:00.000Z" },
+  { player_name: "5A40", score: 973, song_key: "school", created_at: "2026-11-12T04:00:00.000Z" },
+  { player_name: "5C40", score: 973, song_key: "school", created_at: "2026-11-12T05:00:00.000Z" },
   { player_name: "3C01", score: 100, song_key: "school", created_at: "2026-11-12T04:00:00.000Z" },
   { player_name: "3C02", score: 100, song_key: "twinkle", created_at: "2026-11-12T03:30:00.000Z" },
 ];
@@ -373,30 +389,34 @@ for (let i = 0; i < 22; i++) {
   rows.push({
     player_name: "6D" + (i < 9 ? "0" + (i + 1) : String(i + 1)),
     score: 50 - i,
-    song_key: "twinkle",
+    song_key: i < 20 ? "school" : "twinkle",
     created_at: "2026-11-12T06:" + mm + ":00.000Z",
   });
 }
-assert.equal(rows.length, 27);
+assert.equal(rows.length, 29);
 assert.equal(E.LEADERBOARD_LIMIT, 20);
-const ranked = E.rankScores(rows);
+const mixed = E.rankScores(rows);
+assert.ok(mixed.some((row) => row.song_key !== "school"), "unfiltered ranking still sees other songs");
+const ranked = E.rankPublicBoard(rows);
 assert.equal(ranked.length, 20);
+assert.ok(ranked.every((row) => row.song_key === "school"), "public board must not list mixed songs");
 assert.equal(ranked[0].rank, 1);
-assert.equal(ranked[0].player_name, "1A01");
-assert.equal(ranked[0].song_key, "twinkle");
-assert.equal(ranked[1].player_name, "1A02");
-assert.equal(ranked[2].player_name, "2B10");
-assert.equal(ranked[3].player_name, "3C02");
-assert.equal(ranked[4].player_name, "3C01");
+assert.equal(ranked[0].player_name, "5A40");
+assert.equal(ranked[0].song_key, "school");
+assert.equal(ranked[0].score, 973);
+assert.equal(ranked[1].player_name, "5C40");
+assert.equal(ranked[1].score, 973);
+assert.equal(ranked[2].player_name, "3C01");
 assert.equal(ranked[19].rank, 20);
-assert.equal(ranked[19].score, 36);
+assert.equal(ranked[19].song_key, "school");
 assert.equal(E.isSameScoreRow(ranked[0], {
-  player_name: "1A01",
-  score: 900,
-  song_key: "twinkle",
-  created_at: "2026-11-12T01:00:00.000Z",
+  player_name: "5A40",
+  score: 973,
+  song_key: "school",
+  created_at: "2026-11-12T04:00:00.000Z",
 }), true);
 assert.equal(E.isSameScoreRow(ranked[0], ranked[1]), false);
+assert.deepEqual(E.rankPublicBoard([], 20), []);
 assert.deepEqual(E.rankScores([], 20), []);
 
 console.log("\nAll headless tests passed.");
