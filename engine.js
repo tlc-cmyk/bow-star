@@ -217,32 +217,6 @@
   const TIGER_PHRASE_D = [A(0), E(0), A(0, 2), A(0), E(0), A(0, 2)];
   const TIGER_TUNE = [].concat(TIGER_PHRASE_A, TIGER_PHRASE_B, TIGER_PHRASE_C, TIGER_PHRASE_D);
 
-  const JOY_A = [
-    D(4), D(4), D(5), A(0),
-    A(0), D(5), D(4), D(2),
-    D(0), D(0), D(2), D(4),
-    D(4), D(2), D(2, 2),
-  ];
-  const JOY_B = [
-    D(4), D(4), D(5), A(0),
-    A(0), D(5), D(4), D(2),
-    D(0), D(0), D(2), D(4),
-    D(2), D(0), D(0, 2),
-  ];
-  const JOY_C = [
-    D(2), D(2), D(4), D(0),
-    D(2), D(4), D(5), D(4),
-    D(2), D(4), D(5), D(4),
-    D(2), D(0), D(2, 2),
-  ];
-  const JOY_D = [
-    D(4), D(4), D(5), A(0),
-    A(0), D(5), D(4), D(2),
-    D(0), D(0), D(2), D(4),
-    D(2), D(0), D(0, 2),
-  ];
-  const JOY_TUNE = [].concat(JOY_A, JOY_B, JOY_C, JOY_D);
-
   /*
    * LWFSS school song 《龍岡精神》 — fresh transcription from the official
    * published sheet (treble clef, F major / one flat, 4/4, 14 systems,
@@ -397,24 +371,9 @@
       cadence: [110, 220, 277.18, 329.63],
     }),
     makeSong({
-      id: "joy",
-      title: "歡樂頌",
-      label: "第三關　歡樂頌",
-      key: "D",
-      bpm: 100,
-      tune: JOY_TUNE,
-      chordSeq: [
-        "D", "D", "D", "A", "D", "D", "A", "A",
-        "D", "D", "D", "A", "D", "D", "D", "D",
-        "A", "A", "A", "D", "A", "A", "A", "A",
-        "D", "D", "D", "A", "G", "D", "A", "D",
-      ],
-      cadence: [146.83, 293.66, 369.99, 440],
-    }),
-    makeSong({
       id: "school",
       title: "龍岡精神",
-      label: "第四關　龍岡精神",
+      label: "第三關　龍岡精神",
       key: "F",
       bpm: 96,
       tune: SCHOOL_TUNE,

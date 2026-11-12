@@ -183,8 +183,10 @@ assert.deepEqual(E.lanesFromY(1), [3], "y=1 is G");
 }
 
 // --- New songs ---
-assert.equal(E.SONGS.length, 4);
-assert.deepEqual(E.SONGS.map((s) => s.id), ["twinkle", "tigers", "joy", "school"]);
+assert.equal(E.SONGS.length, 3);
+assert.deepEqual(E.SONGS.map((s) => s.id), ["twinkle", "tigers", "school"]);
+assert.equal(E.isValidSongKey("joy"), false);
+assert.equal(E.getSong("joy").id !== "joy", true, "joy must not be a playable song");
 
 const tigers = E.getSong("tigers");
 assertContinuous(tigers);
@@ -198,21 +200,6 @@ assert.ok(Math.abs(tigers.total - 32 * tigers.beat) < 1e-9, "tigers should be 32
 assert.ok(tigers.notes.every((n) => n.lane === 0 || n.lane === 1), "tigers stays on A and E");
 assert.ok(tigers.total > 10 && tigers.total < 30, "tigers duration should be reasonable");
 
-const joy = E.getSong("joy");
-assertContinuous(joy);
-assert.equal(joy.title, "歡樂頌");
-assert.equal(joy.key, "D");
-assert.equal(joy.bpm, 100);
-assert.equal(joy.notes[0].lane, 2, "Ode to Joy starts on D string");
-assert.equal(joy.notes[0].semi, 4, "Ode to Joy starts on D(4) / F#");
-assert.ok(Math.abs(heardFreq(joy.notes[0]) - 369.99) < 0.5, "start pitch should be F#4");
-assert.ok(Math.abs(joy.total - 64 * joy.beat) < 1e-9, "joy should be 64 beats (16 bars)");
-assert.ok(joy.notes.every((n) => n.lane === 1 || n.lane === 2), "joy stays on A and D");
-assert.ok(joy.total > 20 && joy.total < 50, "joy duration should be reasonable");
-const lastJoy = joy.notes[joy.notes.length - 1];
-assert.equal(lastJoy.lane, 2);
-assert.equal(lastJoy.semi, 0, "Ode to Joy should end on D");
-
 const engT = run(perfectBot(), "tigers");
 const rT = engT.result();
 console.log("\n[5] perfect bot — 兩隻老虎");
@@ -221,18 +208,8 @@ assert.ok(engT.finished, "tigers should finish");
 assert.ok(rT.shown >= 90, "tigers perfect bot should be 名演/神技, got " + rT.shown);
 assert.ok(rT.grade === "神技" || rT.grade === "名演", "tigers grade should be 神技 or 名演, got " + rT.grade);
 
-const engJ = run(perfectBot(), "joy");
-const rJ = engJ.result();
-console.log("\n[6] perfect bot — 歡樂頌");
-console.log("  shown:", rJ.shown, " grade:", rJ.grade, " type:", rJ.type, " ends:", rJ.endCount);
-assert.ok(engJ.finished, "joy should finish");
-assert.ok(rJ.shown >= 90, "joy perfect bot should be 名演/神技, got " + rJ.shown);
-assert.ok(rJ.grade === "神技" || rJ.grade === "名演", "joy grade should be 神技 or 名演, got " + rJ.grade);
-
 const stillT = run(stillBot(), "tigers").result();
 assert.ok(stillT.shown <= 2, "tigers still run should be near 0, got " + stillT.shown);
-const stillJ = run(stillBot(), "joy").result();
-assert.ok(stillJ.shown <= 2, "joy still run should be near 0, got " + stillJ.shown);
 
 
 const school = E.getSong("school");
@@ -240,7 +217,7 @@ assertContinuous(school);
 assert.equal(school.title, "龍岡精神");
 assert.equal(school.title, String.fromCodePoint(0x9F8D, 0x5CA1, 0x7CBE, 0x795E));
 assert.deepEqual([...school.title].map((ch) => ch.codePointAt(0)), [0x9F8D, 0x5CA1, 0x7CBE, 0x795E]);
-assert.equal(school.label, "第四關　龍岡精神");
+assert.equal(school.label, "第三關　龍岡精神");
 assert.equal(school.key, "F");
 assert.equal(school.bpm, 96);
 assert.ok(school.bpm >= 85 && school.bpm <= 105, "school bpm should be a playable andante");
@@ -256,7 +233,8 @@ assert.equal(lastSchool.semi, 3, "school song should end on D(3) / F4");
 assert.ok(Math.abs(heardFreq(lastSchool) - 349.23) < 0.5, "end pitch should be F4");
 const schoolLanes = new Set(school.notes.map((n) => n.lane));
 assert.ok(schoolLanes.has(0) && schoolLanes.has(1) && schoolLanes.has(2) && schoolLanes.has(3), "school song uses all four strings");
-assert.equal(E.nextSongId("joy"), "school");
+assert.equal(E.nextSongId("tigers"), "school");
+assert.equal(E.nextSongId("twinkle"), "tigers");
 assert.equal(E.nextSongId("school"), null);
 assert.ok(school.chordSeq.length === 56, "school accompaniment should have 56 two-beat slots");
 assert.ok(school.chordSeq.every((c) => E.CHORD_TONES[c]), "every school chord must be defined");
@@ -318,10 +296,10 @@ assert.equal(E.scoreToTenths(120), 1000);
 assert.equal(E.formatBoardScore(973, "twinkle"), "97.3%　一閃一閃");
 assert.equal(E.formatBoardScore(1000, "school"), "100.0%　龍岡精神");
 assert.equal(E.songTitleOf("tigers"), "兩隻老虎");
-assert.equal(E.songTitleOf("joy"), "歡樂頌");
+assert.equal(E.songTitleOf("joy"), "");
 assert.equal(E.isValidSongKey("twinkle"), true);
 assert.equal(E.isValidSongKey("tigers"), true);
-assert.equal(E.isValidSongKey("joy"), true);
+assert.equal(E.isValidSongKey("joy"), false);
 assert.equal(E.isValidSongKey("school"), true);
 assert.equal(E.isValidSongKey("unknown"), false);
 assert.equal(E.isValidSongKey(""), false);
@@ -330,9 +308,9 @@ assert.equal(E.isValidSongKey("一閃一閃"), false);
 assert.equal(E.isValidSongKey("兩隻老虎"), false);
 assert.equal(E.isValidSongKey("歡樂頌"), false);
 assert.equal(E.formatBoardScore(800, "tigers"), "80.0%　兩隻老虎");
-assert.equal(E.formatBoardScore(750, "joy"), "75.0%　歡樂頌");
+assert.equal(E.formatBoardScore(750, "joy"), "75.0%");
 
-const ALLOWED_SONG_KEYS = ["twinkle", "tigers", "joy", "school"];
+const ALLOWED_SONG_KEYS = ["twinkle", "tigers", "school"];
 assert.deepEqual(E.SONGS.map((s) => s.id), ALLOWED_SONG_KEYS);
 assert.equal(E.PUBLIC_BOARD_SONG_KEY, "school");
 for (let i = 0; i < ALLOWED_SONG_KEYS.length; i++) {
@@ -349,6 +327,17 @@ for (let i = 0; i < ALLOWED_SONG_KEYS.length; i++) {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const gameSrc = fs.readFileSync(path.join(here, "game.js"), "utf8");
+const htmlSrc = fs.readFileSync(path.join(here, "index.html"), "utf8");
+const levelButtons = [...htmlSrc.matchAll(/data-song="([^"]+)"/g)].map((m) => m[1]);
+assert.deepEqual(levelButtons, ["twinkle", "tigers", "school"]);
+assert.equal(levelButtons.length, 3);
+assert.doesNotMatch(htmlSrc, /data-song="joy"/);
+assert.doesNotMatch(htmlSrc, /歡樂頌/);
+assert.doesNotMatch(htmlSrc, /第四關/);
+assert.doesNotMatch(htmlSrc, /有四關/);
+assert.match(htmlSrc, /有三關：《一閃一閃》、《兩隻老虎》同《龍岡精神》。/);
+assert.match(htmlSrc, /data-song="school"[^>]*>第三關　龍岡精神</);
+assert.doesNotMatch(gameSrc, /data-song=\"joy\"/);
 const fetchUrlMatch = gameSrc.match(/BOARD_URL\s*\+[\s\S]*?("[^"]*select=[^"]*")/);
 assert.ok(fetchUrlMatch, "game.js should build a PostgREST select URL");
 const boardQuery = fetchUrlMatch[1];
